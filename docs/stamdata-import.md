@@ -195,3 +195,9 @@ Migration `014_fill_missing_subject_hours.sql` udfylder udvalgte manglende timet
 - Hovedforløb-container-/programfag som `Bl. detail`, `Ikea detail`, `Ikea logistik`, `Handel`, `Kontor`, `Kontor, økonomi` og `Offentlig administration` sættes til `37` timer pr. aktiv uge.
 
 Samme timetal synkroniseres til direkte matchende `education_requirements`, når de også mangler timetal. Migrationen markerer opdaterede rækker med `hours_source` og metadata, så de kan kontrolleres bagefter.
+
+Migration `015_fill_erhvervsinformatik_b_staa_hours.sql` udfylder den sidste kendte STÅ-timetalsmangel:
+
+- `Erhvervsinformatik B` på `Studenteråret Aars` og `Studenteråret Hobro` sættes til `130` timer.
+
+Matchende `education_requirements` opdateres også, hvis de findes og stadig mangler timetal.
