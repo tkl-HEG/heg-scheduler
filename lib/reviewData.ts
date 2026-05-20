@@ -19,6 +19,11 @@ export type ReviewOfferingRow = {
   possible_match: string | null;
   note: string;
   severity: string;
+  missing_hours_classification: "kræver timetal" | "review: container/programfag" | "foreslået match" | "manuel beslutning";
+  recommended_action: string;
+  suggested_hours: number | null;
+  classification_reason: string;
+  affects_teacher_load: boolean;
 };
 
 export type MissingCompetencyRow = {
@@ -83,6 +88,130 @@ function metadataPossibleMatch(metadata: Row | null | undefined) {
   if (Array.isArray(matches)) return matches.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).join(", ");
   if (matches && typeof matches === "object") return JSON.stringify(matches);
   return matches || metadata.hours_note || null;
+}
+
+function normalizeText(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replaceAll("æ", "ae")
+    .replaceAll("ø", "oe")
+    .replaceAll("å", "aa")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function extractSuggestedHours(possibleMatch: string | null) {
+  if (!possibleMatch) return null;
+  const hourMatch = possibleMatch.match(/(?:=|:)?\s*(\d{1,3})(?:[,.]\d+)?\s*(?:timer|t\b|$)/i);
+  return hourMatch ? Number(hourMatch[1]) : null;
+}
+
+function heuristicPossibleMatch(subjectName: string, subjectKey: string, className: string) {
+  const subject = normalizeText(`${subjectName} ${subjectKey}`);
+  const klass = normalizeText(className);
+
+  if (klass.includes("gf2") && subject.includes("dansk") && subject.includes("c")) {
+    return { possibleMatch: "GF1 Dansk C = 80", suggestedHours: 80 };
+  }
+
+  if (klass.includes("gf2") && subject.includes("engelsk") && subject.includes("c")) {
+    return { possibleMatch: "GF1 Engelsk C = 80", suggestedHours: 80 };
+  }
+
+  return { possibleMatch: null, suggestedHours: null };
+}
+
+function classifyMissingHours(input: {
+  subjectName: string;
+  subjectKey: string;
+  className: string;
+  categoryProgram: string;
+  possibleMatch: string | null;
+}) {
+  const text = normalizeText(`${input.subjectName} ${input.subjectKey}`);
+  const context = normalizeText(`${input.className} ${input.categoryProgram}`);
+  const containerKeys = [
+    "bl_detail",
+    "blandet_detail",
+    "ikea_detail",
+    "detail_ikea",
+    "ikea_logistik",
+    "handel",
+    "kontor",
+    "kontor_okonomi",
+    "offentlig_administration",
+    "off_administration",
+    "administration",
+    "logistik"
+  ];
+  const exactContainerMatch = containerKeys.some((key) => text === key || text.includes(key));
+  const likelyContainer =
+    exactContainerMatch ||
+    (["handel", "kontor", "logistik", "administration"].includes(text) && context.includes("hovedforloeb"));
+
+  if (likelyContainer) {
+    return {
+      missing_hours_classification: "review: container/programfag" as const,
+      recommended_action: "Afklar om posten kun er container/programfag. Hvis ja, skal den ikke have skematimer direkte.",
+      suggested_hours: null,
+      classification_reason: "Navnet matcher et forløb/program eller en hovedforløbskategori frem for et konkret undervisningsfag.",
+      affects_teacher_load: false,
+      possible_match: input.possibleMatch
+    };
+  }
+
+  const heuristicMatch = heuristicPossibleMatch(input.subjectName, input.subjectKey, input.className);
+  const possibleMatch = input.possibleMatch || heuristicMatch.possibleMatch;
+  const suggestedHours = extractSuggestedHours(possibleMatch) ?? heuristicMatch.suggestedHours;
+
+  if (possibleMatch) {
+    return {
+      missing_hours_classification: "foreslået match" as const,
+      recommended_action: "Vurder match og udfyld timetal, hvis det er korrekt.",
+      suggested_hours: suggestedHours,
+      classification_reason: "Der findes et muligt timematch i importmetadata eller via konservativ GF1/GF2-heuristik.",
+      affects_teacher_load: true,
+      possible_match: possibleMatch
+    };
+  }
+
+  const realSubjectPatterns = [
+    "arbejdsmarkedsparathed",
+    "erhvervsinformatik",
+    "dansk",
+    "engelsk",
+    "matematik",
+    "samfundsfag",
+    "naturfag",
+    "teknologi",
+    "afsætning",
+    "virksomhedsoekonomi",
+    "informationsteknologi"
+  ];
+  const levelPattern = /(^|_)(a|b|c|d|e|f)(_|$)/;
+  const likelyRealSubject = realSubjectPatterns.some((pattern) => text.includes(normalizeText(pattern))) || levelPattern.test(text);
+
+  if (likelyRealSubject) {
+    return {
+      missing_hours_classification: "kræver timetal" as const,
+      recommended_action: "Find korrekt timetal i opgave-/faggrundlaget og udfyld det senere.",
+      suggested_hours: null,
+      classification_reason: "Posten ligner et konkret undervisningsfag, som normalt påvirker fagfordeling og lærerbelastning.",
+      affects_teacher_load: true,
+      possible_match: input.possibleMatch
+    };
+  }
+
+  return {
+    missing_hours_classification: "manuel beslutning" as const,
+    recommended_action: "Afgør manuelt om posten er skemabærende fag eller kun planlægningscontainer.",
+    suggested_hours: null,
+    classification_reason: "Der er ikke nok sikre signaler til at klassificere posten automatisk.",
+    affects_teacher_load: true,
+    possible_match: input.possibleMatch
+  };
 }
 
 function warningTextForOffering(warnings: Row[], offering: Row, warningTypes: string[]) {
@@ -157,13 +286,25 @@ async function getReviewBaseData() {
       "subject_missing_teacher_assignment",
       "missing_assignment"
     ]);
+    const subjectName = subject?.name || offering.name || "-";
+    const subjectKey = subject?.normalized_key || "-";
+    const className = klass?.name || "-";
+    const categoryProgram = `${category?.name || klass?.metadata?.possible_category || "-"} / ${program?.name || klass?.metadata?.common_education_program_code || "-"}`;
+    const possibleMatch = metadataPossibleMatch(offering.metadata);
+    const missingHoursReview = classifyMissingHours({
+      subjectName,
+      subjectKey,
+      className,
+      categoryProgram,
+      possibleMatch
+    });
 
     return {
       id: offering.id,
-      class_name: klass?.name || "-",
-      subject_name: subject?.name || offering.name || "-",
-      subject_key: subject?.normalized_key || "-",
-      category_program: `${category?.name || klass?.metadata?.possible_category || "-"} / ${program?.name || klass?.metadata?.common_education_program_code || "-"}`,
+      class_name: className,
+      subject_name: subjectName,
+      subject_key: subjectKey,
+      category_program: categoryProgram,
       campus: campus?.name || klass?.address_label || "-",
       total_hours: offering.total_hours === null || offering.total_hours === undefined ? null : Number(offering.total_hours),
       hours_missing: Boolean(offering.hours_missing),
@@ -176,9 +317,14 @@ async function getReviewBaseData() {
       assigned_teachers: (assignmentsByOffering[offering.id] || [])
         .map((assignment) => teacherLabel(teacherMap.get(assignment.teacher_id)))
         .filter(Boolean) as string[],
-      possible_match: metadataPossibleMatch(offering.metadata),
+      possible_match: missingHoursReview.possible_match,
       note: offeringWarnings[0]?.message || "Skal rettes i næste fase.",
       severity: warningSeverity(offeringWarnings),
+      missing_hours_classification: missingHoursReview.missing_hours_classification,
+      recommended_action: missingHoursReview.recommended_action,
+      suggested_hours: missingHoursReview.suggested_hours,
+      classification_reason: missingHoursReview.classification_reason,
+      affects_teacher_load: missingHoursReview.affects_teacher_load,
       assignment_count: (assignmentsByOffering[offering.id] || []).length
     };
   });

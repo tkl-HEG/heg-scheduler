@@ -174,3 +174,24 @@ Migration `013_seed_teacher_workload_allocations.sql` lægger midlertidige årsn
 - `LSSS`: `0` timer og pseudo-ressource til selvstudium
 
 Tallene er midlertidige planlægningsantagelser og skal senere kunne redigeres i appen eller importeres fra den egentlige opgaveoversigt/Excel.
+
+## Review af manglende timetal
+
+Siden `/review/manglende-timer` ændrer ikke data. Den klassificerer manglende timetal som beslutningsstøtte:
+
+- `kræver timetal`: posten ligner et konkret undervisningsfag og bør senere have korrekt timetal.
+- `review: container/programfag`: posten ligner et program eller en container, som sandsynligvis ikke skal skemalægges direkte.
+- `foreslået match`: importmetadata eller konservativ heuristik peger på et muligt timetal, fx GF2 Dansk C til GF1 Dansk C = 80.
+- `manuel beslutning`: der er ikke nok sikre signaler til automatisk klassifikation.
+
+Kun container-/programfag markeres som udgangspunkt med `påvirker lærerbelastning = nej`. De øvrige kategorier behandles konservativt som noget, der kan påvirke lærerbelastningen, indtil vi har besluttet andet.
+
+## Manuel timetalsrettelse 014
+
+Migration `014_fill_missing_subject_hours.sql` udfylder udvalgte manglende timetal uden at overskrive eksisterende ikke-nul timetal:
+
+- `Arbejdsmarkedsparathed` sættes til `30` timer.
+- Manglende `Dansk C` og `Engelsk C` på GF/GF2/EUD/EUX følger kendt reference, hvis den findes; ellers bruges fallback `80` timer.
+- Hovedforløb-container-/programfag som `Bl. detail`, `Ikea detail`, `Ikea logistik`, `Handel`, `Kontor`, `Kontor, økonomi` og `Offentlig administration` sættes til `37` timer pr. aktiv uge.
+
+Samme timetal synkroniseres til direkte matchende `education_requirements`, når de også mangler timetal. Migrationen markerer opdaterede rækker med `hours_source` og metadata, så de kan kontrolleres bagefter.
