@@ -14,6 +14,7 @@ Indhold:
 - `supabase/migrations/009_add_lsss_jhm_teachers.sql` - manuel stamdatarettelse: tilføjer LSSS som selvstudiumsressource og JHM som lærer med kompetence i Arbejdsmarkedsparathed, hvis faget findes.
 - `supabase/migrations/010_teacher_workload_planning.sql` - tilføjer årlig opgaveoversigt, halvårsperioder og et første view til lærerbelastning.
 - `supabase/migrations/011_fix_workload_period_dates.sql` - retter halvårsperioderne for `2026/2027`, så efteråret går ca. to uger ind i januar.
+- `supabase/migrations/012_readonly_workload_policies.sql` - giver read-only anon-adgang til opgaveoversigt-tabeller og workload-statusviewet.
 - `scripts/import-official-hf-calendar.mjs` - parser `Kalender 2023-2028 nyt forslag.xlsx` med dry-run og Supabase-import.
 - `scripts/import-planning-calendars.mjs` - parser GF1/GF2/STÅ Excel-udkast og DOCX med vigtige datoer med dry-run og senere Supabase-import.
 - `scripts/import-stamdata.mjs` - parser prototype- og Excel-stamdata med dry-run og senere Supabase-import.

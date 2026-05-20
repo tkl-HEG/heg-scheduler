@@ -163,3 +163,5 @@ Opgaveoversigten er årlig. Fagfordeling laves halvårligt. Skemalægning laves 
 `LSSS` / `Selvstudium` er markeret som pseudo-ressource og tæller ikke som almindelig lærerbelastning i workload-viewet.
 
 Migration `011_fix_workload_period_dates.sql` retter halvårsperioderne for `2026/2027`, så efteråret går fra `2026-08-01` til `2027-01-17`, og foråret går fra `2027-01-18` til `2027-07-31`. Efterårssemesteret går normalt ca. to uger ind i januar, fordi semesteret består af ca. 20 undervisningsuger plus ferie. Typisk starter efteråret omkring uge 33, mens uge 42 og uge 52 er ferieuger.
+
+Siden `/opgaveoversigt` viser det aktive skoleår, halvårsperioder og `v_teacher_workload_status` som read-only tabel. Hvis en lærer endnu ikke har `allocated_hours`, vises `Mangler årsnorm`. LSSS vises som pseudo-ressource og tæller ikke som almindelig lærerbelastning.
