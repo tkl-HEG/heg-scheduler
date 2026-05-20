@@ -139,6 +139,15 @@ h3 {
   line-height: 1;
 }
 
+.metric-link {
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.metric-link:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
 .notice {
   margin: 0 0 18px;
   padding: 14px 16px;
