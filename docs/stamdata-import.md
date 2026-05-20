@@ -148,3 +148,18 @@ Migration `009_add_lsss_jhm_teachers.sql` tilføjer to manuelle stamdatarettelse
 - `JHM` / `Jens Peter Hartvig Madsen` oprettes som almindelig lærer.
 
 Hvis faget `Arbejdsmarkedsparathed` findes i `course_subjects`, får `JHM` en `primary` lærerkompetence i faget. Hvis faget mangler, stopper migrationen ikke importen, men skriver en `notice`, så kompetencen kan tilføjes efter faget er oprettet.
+
+## Opgaveoversigt og belastning
+
+Migration `010_teacher_workload_planning.sql` tilføjer et planlægningslag for lærerbelastning:
+
+- `workload_years` beskriver det årlige skoleår/planlægningsår, fx `2026/2027`.
+- `teacher_workload_allocations` gemmer opgaveoversigten: det årlige timetal pr. lærer.
+- `workload_periods` beskriver halvår inden for skoleåret, fx `Efterår 2026` og `Forår 2027`.
+- `v_teacher_workload_status` giver et første read-only overblik over årsnorm, kendte fagfordelte timer, manglende timetal og over/under norm.
+
+Opgaveoversigten er årlig. Fagfordeling laves halvårligt. Skemalægning laves også halvårligt. Opgaveoversigten bruges derfor først til at vurdere lærerbelastning før og efter fagfordelingen, og senere som kontrolpunkt når skemaet bliver lagt.
+
+`LSSS` / `Selvstudium` er markeret som pseudo-ressource og tæller ikke som almindelig lærerbelastning i workload-viewet.
+
+Migration `011_fix_workload_period_dates.sql` retter halvårsperioderne for `2026/2027`, så efteråret går fra `2026-08-01` til `2027-01-17`, og foråret går fra `2027-01-18` til `2027-07-31`. Efterårssemesteret går normalt ca. to uger ind i januar, fordi semesteret består af ca. 20 undervisningsuger plus ferie. Typisk starter efteråret omkring uge 33, mens uge 42 og uge 52 er ferieuger.
