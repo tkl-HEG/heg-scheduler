@@ -186,6 +186,19 @@ Siden `/review/manglende-timer` ændrer ikke data. Den klassificerer manglende t
 
 Kun container-/programfag markeres som udgangspunkt med `påvirker lærerbelastning = nej`. De øvrige kategorier behandles konservativt som noget, der kan påvirke lærerbelastningen, indtil vi har besluttet andet.
 
+## Review af fagfordelinger uden kompetence
+
+Siden `/review/manglende-kompetencer` ændrer ikke data. Den viser fagfordelinger, hvor den tildelte lærer ikke har registreret kompetence til faget, og bruger `teaching_assignments`, `teacher_competencies`, `teacher_suggestions`, lærere, fag, hold og fagudbud som beslutningsgrundlag.
+
+Anbefalet handling klassificeres sådan:
+
+- `Tilføj kompetence til lærer`: læreren er fagfordelt og findes også som suggested teacher, så kompetencen mangler sandsynligvis i stamdata.
+- `Overvej at skifte lærer`: der findes andre lærere med registreret kompetence til faget, og den fagfordelte lærer er ikke suggested teacher.
+- `Pseudo-resource / selvstudium`: læreren er `LSSS` eller markeret som pseudo-resource i metadata.
+- `Manuel vurdering`: systemet kan ikke afgøre, om kompetencen skal tilføjes, eller fagfordelingen skal ændres.
+
+Siden viser også fagfordelte timer, kategori/program, campus og andre kompetente lærere, så rettelser senere kan laves kontrolleret i en skrivefase.
+
 ## Manuel timetalsrettelse 014
 
 Migration `014_fill_missing_subject_hours.sql` udfylder udvalgte manglende timetal uden at overskrive eksisterende ikke-nul timetal:

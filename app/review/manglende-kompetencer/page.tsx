@@ -13,19 +13,47 @@ export default async function MissingCompetenciesPage() {
     <>
       <PageHeader title="Manglende kompetencer" />
       <StatusMessage issues={issues} />
-      <section className="info-box">Dette er et review-overblik. Rettelser kommer i næste fase.</section>
+      <section className="info-box">
+        Denne side ændrer ikke data. Den hjælper med at afgøre, om en kompetence skal tilføjes til læreren, eller om
+        fagfordelingen skal ændres.
+      </section>
       <DataTable
-        columns={["Hold", "Fag", "Lærer", "Initialer", "Foreslået", "Mulig årsag", "Severity"]}
+        columns={[
+          "Hold",
+          "Fag",
+          "Lærerinitialer",
+          "Lærernavn",
+          "Kategori/program",
+          "Campus",
+          "Fagfordelte timer",
+          "Pseudo-resource",
+          "Suggested teacher",
+          "Andre kompetente lærere",
+          "Anbefalet handling",
+          "Severity",
+          "Begrundelse"
+        ]}
         rows={rows.map((row) => [
           asText(row.class_name),
           asText(row.subject_name),
-          asText(row.teacher_name),
           <strong key="initials">{asText(row.teacher_initials)}</strong>,
+          asText(row.teacher_name),
+          asText(row.category_program),
+          asText(row.campus),
+          row.assigned_hours_known === null ? "-" : asText(Number(row.assigned_hours_known.toFixed(1))),
+          row.is_pseudo_resource ? "Ja" : "Nej",
           row.was_suggested ? "Ja" : "Nej",
-          asText(row.possible_reason),
-          <span className={`badge badge-${row.severity === "error" ? "error" : "warning"}`} key="severity">
+          asText(row.competent_teachers),
+          <span className="badge badge-info" key="action">
+            {asText(row.recommended_action)}
+          </span>,
+          <span
+            className={`badge badge-${row.severity === "error" ? "error" : row.severity === "info" ? "info" : "warning"}`}
+            key="severity"
+          >
             {asText(row.severity)}
-          </span>
+          </span>,
+          asText(row.possible_reason)
         ])}
       />
     </>

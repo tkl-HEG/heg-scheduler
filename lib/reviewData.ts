@@ -30,9 +30,15 @@ export type MissingCompetencyRow = {
   id: string;
   class_name: string;
   subject_name: string;
+  category_program: string;
+  campus: string;
+  assigned_hours_known: number | null;
   teacher_name: string;
   teacher_initials: string;
+  is_pseudo_resource: boolean;
   was_suggested: boolean;
+  competent_teachers: string[];
+  recommended_action: "Tilføj kompetence til lærer" | "Overvej at skifte lærer" | "Pseudo-resource / selvstudium" | "Manuel vurdering";
   possible_reason: string;
   severity: string;
 };
@@ -223,6 +229,61 @@ function warningTextForOffering(warnings: Row[], offering: Row, warningTypes: st
   });
 }
 
+function isPseudoResourceTeacher(teacher: Row | undefined) {
+  if (!teacher) return false;
+  return (
+    teacher.initials === "LSSS" ||
+    Boolean(teacher.metadata?.is_pseudo_teacher) ||
+    Boolean(teacher.metadata?.is_resource) ||
+    teacher.metadata?.resource_type === "self_study"
+  );
+}
+
+function classifyMissingCompetency(input: {
+  isPseudoResource: boolean;
+  wasSuggested: boolean;
+  competentTeachers: string[];
+  warning: Row | undefined;
+  teacherInitials: string;
+  subjectName: string;
+}) {
+  if (input.isPseudoResource) {
+    return {
+      recommended_action: "Pseudo-resource / selvstudium" as const,
+      severity: "info",
+      possible_reason: "Læreren er markeret som pseudo-ressource/selvstudium og skal ikke nødvendigvis have almindelig fagkompetence."
+    };
+  }
+
+  if (input.wasSuggested) {
+    return {
+      recommended_action: "Tilføj kompetence til lærer" as const,
+      severity: input.warning?.severity || "warning",
+      possible_reason:
+        input.warning?.message ||
+        `${input.teacherInitials} er både fagfordelt og foreslået til ${input.subjectName}, så kompetencen mangler sandsynligvis i stamdata.`
+    };
+  }
+
+  if (input.competentTeachers.length > 0) {
+    return {
+      recommended_action: "Overvej at skifte lærer" as const,
+      severity: input.warning?.severity || "warning",
+      possible_reason:
+        input.warning?.message ||
+        `Der findes andre lærere med registreret kompetence til ${input.subjectName}, og den fagfordelte lærer er ikke foreslået.`
+    };
+  }
+
+  return {
+    recommended_action: "Manuel vurdering" as const,
+    severity: input.warning?.severity || "warning",
+    possible_reason:
+      input.warning?.message ||
+      "Systemet kan ikke afgøre, om kompetencen skal tilføjes, eller om fagfordelingen skal ændres."
+  };
+}
+
 async function getReviewBaseData() {
   const [offerings, classes, subjects, campuses, categories, programs, assignments, suggestions, teachers, competencies, warnings, imports] =
     await Promise.all([
@@ -239,9 +300,9 @@ async function getReviewBaseData() {
       readRows<Row>("campuses", "id,name,legacy_label", { order: "name", limit: 500 }),
       readRows<Row>("class_categories", "id,name,normalized_key", { order: "name", limit: 500 }),
       readRows<Row>("education_programs", "id,code,name", { order: "code", limit: 500 }),
-      readRows<Row>("teaching_assignments", "id,subject_offering_id,teacher_id", { limit: 10000 }),
+      readRows<Row>("teaching_assignments", "id,subject_offering_id,teacher_id,share_fraction", { limit: 10000 }),
       readRows<Row>("teacher_suggestions", "subject_offering_id,teacher_id,reason", { limit: 10000 }),
-      readRows<Row>("teachers", "id,initials,display_name", { order: "initials", limit: 2000 }),
+      readRows<Row>("teachers", "id,initials,display_name,metadata", { order: "initials", limit: 2000 }),
       readRows<Row>("teacher_competencies", "teacher_id,course_subject_id,level", { limit: 10000 }),
       readRows<Row>(
         "import_warnings",
@@ -338,24 +399,52 @@ async function getReviewBaseData() {
       const offering = offerings.data.find((item) => item.id === assignment.subject_offering_id)!;
       const klass = classMap.get(offering.class_group_id);
       const subject = subjectMap.get(offering.course_subject_id);
+      const category = categoryMap.get(klass?.class_category_id);
+      const program = programMap.get(klass?.education_program_id);
+      const campus = campusMap.get(klass?.campus_id);
       const teacher = teacherMap.get(assignment.teacher_id);
       const suggestionsForOffering = suggestionsByOffering[offering.id] || [];
+      const wasSuggested = suggestionsForOffering.some((suggestion) => suggestion.teacher_id === assignment.teacher_id);
+      const isPseudoResource = isPseudoResourceTeacher(teacher);
+      const competentTeachers = (competentTeachersBySubject[offering.course_subject_id] || []).filter(
+        (label) => label !== teacher?.initials && !label.startsWith(`${teacher?.initials} -`)
+      );
+      const subjectName = subject?.name || offering.name || "-";
       const warning = warnings.data.find(
         (item) =>
           item.warning_type === "teacher_missing_competency" &&
           String(item.message || "").includes(teacher?.initials || "") &&
-          String(item.message || "").toLowerCase().includes(String(subject?.name || offering.name || "").toLowerCase())
+          String(item.message || "").toLowerCase().includes(String(subjectName).toLowerCase())
       );
+      const review = classifyMissingCompetency({
+        isPseudoResource,
+        wasSuggested,
+        competentTeachers,
+        warning,
+        teacherInitials: teacher?.initials || "-",
+        subjectName
+      });
+      const totalHours = offering.total_hours === null || offering.total_hours === undefined ? null : Number(offering.total_hours);
+      const share =
+        assignment.share_fraction === null || assignment.share_fraction === undefined ? 1 : Number(assignment.share_fraction);
 
       return {
         id: assignment.id,
         class_name: klass?.name || "-",
-        subject_name: subject?.name || offering.name || "-",
+        subject_name: subjectName,
+        category_program: `${category?.name || klass?.metadata?.possible_category || "-"} / ${
+          program?.name || klass?.metadata?.common_education_program_code || "-"
+        }`,
+        campus: campus?.name || klass?.address_label || "-",
+        assigned_hours_known: totalHours && totalHours > 0 ? totalHours * (Number.isFinite(share) ? share : 1) : null,
         teacher_name: teacher?.display_name || "-",
         teacher_initials: teacher?.initials || "-",
-        was_suggested: suggestionsForOffering.some((suggestion) => suggestion.teacher_id === assignment.teacher_id),
-        possible_reason: warning?.message || "Læreren er fagfordelt, men der er ikke registreret kompetence til faget.",
-        severity: warning?.severity || "warning"
+        is_pseudo_resource: isPseudoResource,
+        was_suggested: wasSuggested,
+        competent_teachers: competentTeachers,
+        recommended_action: review.recommended_action,
+        possible_reason: review.possible_reason,
+        severity: review.severity
       };
     });
 
