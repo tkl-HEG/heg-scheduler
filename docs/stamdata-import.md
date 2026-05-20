@@ -139,3 +139,12 @@ Scriptet gemmer warnings for bl.a.:
 - lokaler uden adresse
 
 Warnings er bevidst en del af importen: Excel-filen er startgrundlag, men data skal senere kunne rettes direkte i programmet.
+
+## Manuel stamdatarettelse 009
+
+Migration `009_add_lsss_jhm_teachers.sql` tilføjer to manuelle stamdatarettelser efter importen:
+
+- `LSSS` / `Selvstudium` oprettes som pseudo-lærer/ressource i `teachers.metadata`. Den skal senere kunne bruges til selvstudium i fagfordeling og skema uden at booke en rigtig lærer.
+- `JHM` / `Jens Peter Hartvig Madsen` oprettes som almindelig lærer.
+
+Hvis faget `Arbejdsmarkedsparathed` findes i `course_subjects`, får `JHM` en `primary` lærerkompetence i faget. Hvis faget mangler, stopper migrationen ikke importen, men skriver en `notice`, så kompetencen kan tilføjes efter faget er oprettet.

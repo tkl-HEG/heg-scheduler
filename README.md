@@ -11,6 +11,7 @@ Indhold:
 - `supabase/migrations/005_official_hf_calendar_schema.sql` - tilføjer officiel hovedforløbskalender, så HF-forløb kan importeres, låses og planlægges udenom.
 - `supabase/migrations/006_general_planning_calendar_schema.sql` - tilføjer generelle planlægningskalendere for GF1, GF2, STÅ og vigtige datoer.
 - `supabase/migrations/007_staa_common_program.sql` - tilføjer fælles STÅ-program og STÅ-kategori for forskudte STÅ1/STÅ2-kohorter.
+- `supabase/migrations/009_add_lsss_jhm_teachers.sql` - manuel stamdatarettelse: tilføjer LSSS som selvstudiumsressource og JHM som lærer med kompetence i Arbejdsmarkedsparathed, hvis faget findes.
 - `scripts/import-official-hf-calendar.mjs` - parser `Kalender 2023-2028 nyt forslag.xlsx` med dry-run og Supabase-import.
 - `scripts/import-planning-calendars.mjs` - parser GF1/GF2/STÅ Excel-udkast og DOCX med vigtige datoer med dry-run og senere Supabase-import.
 - `scripts/import-stamdata.mjs` - parser prototype- og Excel-stamdata med dry-run og senere Supabase-import.

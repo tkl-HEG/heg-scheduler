@@ -212,14 +212,27 @@ export async function getClassesData() {
 }
 
 export async function getTeachersData() {
-  const [teachers, competencies, assignments] = await Promise.all([
+  const [teachers, competencies, subjects, assignments] = await Promise.all([
     readRows<Row>("teachers", "id,legacy_id,initials,display_name,skills_summary,metadata", { order: "initials", limit: 1000 }),
-    readRows<Row>("teacher_competencies", "teacher_id", { limit: 5000 }),
+    readRows<Row>("teacher_competencies", "teacher_id,course_subject_id,level", { limit: 5000 }),
+    readRows<Row>("course_subjects", "id,name,normalized_key", { limit: 2000 }),
     readRows<Row>("teaching_assignments", "teacher_id", { limit: 5000 })
   ]);
 
+  const subjectMap = mapById(subjects.data);
   const competenciesByTeacher = countRowsBy(competencies.data, "teacher_id");
   const assignmentsByTeacher = countRowsBy(assignments.data, "teacher_id");
+  const competencySummariesByTeacher = competencies.data.reduce<Record<string, string[]>>((acc, competency) => {
+    const subjectName = subjectMap.get(competency.course_subject_id)?.name;
+    if (!subjectName) return acc;
+
+    const label = competency.level && competency.level !== "primary" ? `${subjectName} (${competency.level})` : subjectName;
+    acc[competency.teacher_id] = acc[competency.teacher_id] || [];
+    if (!acc[competency.teacher_id].includes(label)) {
+      acc[competency.teacher_id].push(label);
+    }
+    return acc;
+  }, {});
 
   return {
     rows: teachers.data.map((teacher): TeacherListRow => ({
@@ -227,12 +240,12 @@ export async function getTeachersData() {
       legacy_id: teacher.legacy_id ?? null,
       initials: teacher.initials,
       display_name: teacher.display_name ?? null,
-      skills_summary: teacher.skills_summary ?? null,
+      skills_summary: competencySummariesByTeacher[teacher.id]?.join(", ") || teacher.skills_summary || null,
       metadata: teacher.metadata || {},
       competencies_count: competenciesByTeacher[teacher.id] || 0,
       assignments_count: assignmentsByTeacher[teacher.id] || 0
     })),
-    issues: issuesFrom([teachers, competencies, assignments])
+    issues: issuesFrom([teachers, competencies, subjects, assignments])
   };
 }
 
