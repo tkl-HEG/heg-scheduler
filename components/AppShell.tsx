@@ -8,11 +8,11 @@ const navItems = [
   { href: "/admin/kompetencer", label: "Admin kompetencer" },
   { href: "/opgaveoversigt", label: "Opgaveoversigt" },
   { href: "/hold", label: "Hold" },
-  { href: "/laerere", label: "LÃ¦rere" },
+  { href: "/laerere", label: "Lærere" },
   { href: "/fagudbud", label: "Fagudbud" },
   { href: "/kalendere", label: "Kalendere" },
-  { href: "/tilstedevaerelse", label: "TilstedevÃ¦relse" },
-  { href: "/staa-review", label: "STÃ… review" },
+  { href: "/tilstedevaerelse", label: "Tilstedeværelse" },
+  { href: "/staa-review", label: "STÅ review" },
   { href: "/debug/supabase", label: "Debug" }
 ];
 
