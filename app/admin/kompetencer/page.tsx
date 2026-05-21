@@ -2,7 +2,7 @@
 import { PageHeader } from "../../../components/PageHeader";
 import { StatusMessage } from "../../../components/StatusMessage";
 import { asText } from "../../../lib/format";
-import { getAdminCompetenciesData } from "./adminCompetenciesData";
+import { getAdminCompetenciesData } from "../../../lib/adminCompetenciesData";
 
 export const dynamic = "force-dynamic";
 

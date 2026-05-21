@@ -1,4 +1,4 @@
-﻿import { readRows } from "../../../lib/supabase";
+import { readRows } from "./supabase";
 
 type Row = Record<string, any>;
 

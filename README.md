@@ -106,6 +106,8 @@ npm run dev
 
 Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kalendere` og `/staa-review`.
 
+`/admin/kompetencer` er en read-only preview af lærerkompetencer med disabled checkboxes. Senere ændringer skal ske server-side med rollecheck, og `data_change_log` bruges til audit.
+
 Hvis Supabase RLS blokerer læsning med anon key, viser appen en fejlbesked på siden. Se `docs/app-dashboard.md` for anbefalede næste trin.
 
 ## Vercel deploy
