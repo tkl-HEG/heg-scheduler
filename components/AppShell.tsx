@@ -1,17 +1,18 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import type { ReactNode } from "react";
 
 const navItems = [
   { href: "/", label: "Dashboard" },
   { href: "/importstatus", label: "Importstatus" },
   { href: "/review", label: "Review" },
+  { href: "/admin/kompetencer", label: "Admin kompetencer" },
   { href: "/opgaveoversigt", label: "Opgaveoversigt" },
   { href: "/hold", label: "Hold" },
-  { href: "/laerere", label: "Lærere" },
+  { href: "/laerere", label: "LÃ¦rere" },
   { href: "/fagudbud", label: "Fagudbud" },
   { href: "/kalendere", label: "Kalendere" },
-  { href: "/tilstedevaerelse", label: "Tilstedeværelse" },
-  { href: "/staa-review", label: "STÅ review" },
+  { href: "/tilstedevaerelse", label: "TilstedevÃ¦relse" },
+  { href: "/staa-review", label: "STÃ… review" },
   { href: "/debug/supabase", label: "Debug" }
 ];
 
@@ -34,3 +35,4 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
