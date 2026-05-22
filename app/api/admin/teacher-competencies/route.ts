@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { assertAdminOrEditor, getAdminIdentityForAudit, getRequestUser } from "../../../../lib/adminAuth";
 import { createServerSupabaseAdminClient, getServerSupabaseConfig } from "../../../../lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,10 @@ type BaseRow = {
   id: string;
   school_id: string;
 };
+type SchoolRow = {
+  id: string;
+  organization_id: string;
+};
 type CompetencyRow = {
   id: string;
   school_id: string;
@@ -25,7 +30,6 @@ type CompetencyRow = {
   metadata: Record<string, unknown>;
 };
 
-const CHANGED_BY_PLACEHOLDER = "server-dev-placeholder";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LEVELS = new Set<CompetencyLevel>(["primary", "secondary", "certified"]);
 
@@ -95,6 +99,7 @@ async function writeAudit(
     teacherId: string;
     courseSubjectId: string;
     level: CompetencyLevel;
+    changedBy: string;
   }
 ) {
   return client.from("data_change_log").insert({
@@ -103,7 +108,7 @@ async function writeAudit(
     change_type: input.changeType,
     before_data: input.beforeData,
     after_data: input.afterData,
-    changed_by: CHANGED_BY_PLACEHOLDER,
+    changed_by: input.changedBy,
     source: "app",
     metadata: {
       route: "/api/admin/teacher-competencies",
@@ -115,12 +120,18 @@ async function writeAudit(
 }
 
 export async function POST(request: NextRequest) {
-  // TODO: Add Supabase Auth session validation and organization_members role checks before any UI write is enabled.
+  // TODO: Keep this route disconnected from UI until Supabase Auth + organization_members role checks are tested end-to-end.
   const config = getServerSupabaseConfig();
   const client = createServerSupabaseAdminClient();
 
   if (!client) {
     return json(500, { success: false, error: config.issue || "Supabase server client mangler konfiguration." });
+  }
+
+  const userResult = await getRequestUser(request, client);
+
+  if ("error" in userResult) {
+    return json(userResult.status, { success: false, error: userResult.error });
   }
 
   let rawBody: unknown;
@@ -172,6 +183,29 @@ export async function POST(request: NextRequest) {
     return json(400, { success: false, error: "Lærer og fag hører ikke til samme skole." });
   }
 
+  const school = await client
+    .from("schools")
+    .select("id,organization_id")
+    .eq("id", schoolRows.teacher.school_id)
+    .single<SchoolRow>();
+
+  if (school.error) {
+    return json(500, { success: false, error: `schools: ${school.error.message}` });
+  }
+
+  const adminAuth = await assertAdminOrEditor({
+    request,
+    organizationId: school.data.organization_id,
+    client,
+    user: userResult.user
+  });
+
+  if ("error" in adminAuth) {
+    return json(adminAuth.status, { success: false, error: adminAuth.error });
+  }
+
+  const changedBy = getAdminIdentityForAudit(adminAuth.user);
+
   const existing = await findCompetency(client, rawBody.teacher_id, rawBody.course_subject_id, level);
 
   if (existing.error) {
@@ -208,7 +242,8 @@ export async function POST(request: NextRequest) {
       afterData: inserted.data,
       teacherId: rawBody.teacher_id,
       courseSubjectId: rawBody.course_subject_id,
-      level
+      level,
+      changedBy
     });
 
     if (audit.error) {
@@ -235,7 +270,8 @@ export async function POST(request: NextRequest) {
     afterData: null,
     teacherId: rawBody.teacher_id,
     courseSubjectId: rawBody.course_subject_id,
-    level
+    level,
+    changedBy
   });
 
   if (audit.error) {

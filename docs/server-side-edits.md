@@ -7,6 +7,7 @@ Dette dokument beskriver den anbefalede model for senere redigering af lærerkom
 - Read-only visninger bruger fortsat `lib/supabase.ts` med `NEXT_PUBLIC_SUPABASE_URL` og `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 - Server-side writes skal bruge `lib/supabaseServer.ts`.
 - `lib/supabaseServer.ts` importerer `server-only`, så den ikke kan bruges fra client components.
+- Auth- og rollecheck til admin-writes ligger i `lib/adminAuth.ts`.
 - Den konkrete kompetenceændring bør senere ligge i en Next.js route handler eller server action, fx under `app/admin/kompetencer/actions.ts` eller `app/api/admin/competencies/route.ts`.
 
 ## Environment variables
@@ -16,16 +17,34 @@ Sæt disse i Vercel:
 - `NEXT_PUBLIC_SUPABASE_URL`: public Supabase URL til read-only appen.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: public anon key til read-only appen.
 - `SUPABASE_SERVICE_ROLE_KEY`: server-only service role key til kontrollerede server writes.
-- `SUPABASE_URL`: valgfri server-only URL. Hvis den ikke sættes, bruger server-helperen `NEXT_PUBLIC_SUPABASE_URL` som URL.
 
 `SUPABASE_SERVICE_ROLE_KEY` må aldrig have `NEXT_PUBLIC_` prefix og må ikke importeres i client components.
+
+`SUPABASE_URL` kan sættes som valgfri server-only URL, men server-helperen kan også bruge `NEXT_PUBLIC_SUPABASE_URL` som URL.
+
+## Auth- og rollemodel
+
+`organization_members` findes allerede fra det oprindelige schema. Migration `017_admin_auth_roles.sql` udvider tabellen til den praktiske admin-model med `id`, `email`, `is_active`, `updated_at` og `metadata`, uden at give anon write access.
+
+Roller:
+
+- `owner`: fuld administrativ adgang.
+- `admin`: administrativ adgang.
+- `editor`: må bruge fremtidige kontrollerede write-flows.
+- `viewer`: må kun læse.
+
+Server-side writes må kun fortsætte for aktive medlemskaber med `owner`, `admin` eller `editor`.
+
+Migration `017_admin_auth_roles.sql` forbereder også en initial owner for `tkl@heguddannelser.dk` i organisationen `heg`. Hvis organisationen ikke findes, skriver migrationen en notice og stopper uden hard crash. Hvis Auth-brugeren ikke findes endnu, oprettes en email-only placeholder, så den kan matches via email, indtil `user_id` bliver koblet.
+
+Anon får ikke insert/update/delete på `organization_members`, og `data_change_log` har fortsat ingen anon/authenticated write policies.
 
 ## Write flow for lærerkompetencer
 
 Den senere write-sti bør gøre dette i rækkefølge:
 
 1. Modtag ændringen i en server action eller route handler.
-2. Læs brugerens Supabase Auth session fra requesten.
+2. Læs brugerens Supabase Auth session fra requestens `Authorization: Bearer <access_token>`.
 3. Afvis requesten, hvis brugeren ikke er logget ind.
 4. Kontroller brugerens rolle i `organization_members`; tillad kun fx `owner`, `admin` eller `editor`.
 5. Valider input: `teacher_id`, `course_subject_id`, ønsket handling og evt. `level`.
@@ -38,7 +57,7 @@ Selve ændringen og audit-rækken bør ske i én samlet databasehandling. Den me
 
 ## changed_by
 
-`changed_by` bør sættes fra den validerede Supabase Auth bruger:
+`changed_by` sættes fra den validerede Supabase Auth bruger:
 
 - Brug `user.id`, når det findes.
 - Brug brugerens email som fallback.
@@ -81,14 +100,16 @@ Den accepterer kun `POST` med JSON:
 Route handleren:
 
 - bruger `lib/supabaseServer.ts`
+- kræver Supabase Auth bearer token
+- kræver aktivt `organization_members` medlemskab med `owner`, `admin` eller `editor`
 - validerer `teacher_id` og `course_subject_id` som UUID
 - kontrollerer at lærer og fag findes og hører til samme skole
 - indsætter eller sletter i `teacher_competencies`
 - skriver audit-række i `data_change_log`
-- bruger midlertidigt `changed_by = server-dev-placeholder`
+- sætter `changed_by` fra den validerede Auth bruger
 - returnerer JSON med `success`, `status` eller `error`
 
-Route handleren må ikke kobles til UI, før Supabase Auth session-validering og `organization_members` rollecheck er implementeret. Når UI-write skal aktiveres, bør den endelige databaseændring og audit-log samles i en Postgres RPC/transaktion, så der ikke kan opstå en kompetenceændring uden audit-række.
+Route handleren må stadig ikke kobles til UI, før Auth + rollecheck er testet end-to-end på Vercel. Når UI-write skal aktiveres, bør den endelige databaseændring og audit-log samles i en Postgres RPC/transaktion, så der ikke kan opstå en kompetenceændring uden audit-række.
 
 ## Hvad vi ikke gør endnu
 
