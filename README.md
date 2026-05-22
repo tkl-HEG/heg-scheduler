@@ -108,6 +108,8 @@ Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kale
 
 `/admin/kompetencer` er en read-only preview af lærerkompetencer med disabled checkboxes. Senere ændringer skal ske server-side med rollecheck, og `data_change_log` bruges til audit.
 
+Se `docs/server-side-edits.md` for den planlagte server-only write-model og Vercel environment variables.
+
 Hvis Supabase RLS blokerer læsning med anon key, viser appen en fejlbesked på siden. Se `docs/app-dashboard.md` for anbefalede næste trin.
 
 ## Vercel deploy
