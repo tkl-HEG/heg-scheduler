@@ -61,6 +61,35 @@ For lærerkompetencer bør audit-rækken bruge:
 - `source = app`
 - `metadata`: fx `route`, `teacher_id`, `course_subject_id` og UI-kontekst
 
+## Første route handler
+
+Den første server-side route handler ligger i `app/api/admin/teacher-competencies/route.ts`.
+
+Den accepterer kun `POST` med JSON:
+
+```json
+{
+  "action": "add",
+  "teacher_id": "uuid",
+  "course_subject_id": "uuid",
+  "level": "primary"
+}
+```
+
+`action` kan være `add` eller `remove`, og `level` er valgfri med default `primary`.
+
+Route handleren:
+
+- bruger `lib/supabaseServer.ts`
+- validerer `teacher_id` og `course_subject_id` som UUID
+- kontrollerer at lærer og fag findes og hører til samme skole
+- indsætter eller sletter i `teacher_competencies`
+- skriver audit-række i `data_change_log`
+- bruger midlertidigt `changed_by = server-dev-placeholder`
+- returnerer JSON med `success`, `status` eller `error`
+
+Route handleren må ikke kobles til UI, før Supabase Auth session-validering og `organization_members` rollecheck er implementeret. Når UI-write skal aktiveres, bør den endelige databaseændring og audit-log samles i en Postgres RPC/transaktion, så der ikke kan opstå en kompetenceændring uden audit-række.
+
 ## Hvad vi ikke gør endnu
 
 - Ingen aktive write-knapper på `/admin/kompetencer`.
