@@ -219,6 +219,18 @@ h3 {
   cursor: pointer;
 }
 
+.filter-reset {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-weight: 700;
+}
+
 .content-section,
 .review-panel,
 .group-panel {
@@ -339,6 +351,61 @@ td {
 
 tr:last-child td {
   border-bottom: 0;
+}
+
+.competency-table-wrap {
+  margin-bottom: 18px;
+}
+
+.competency-matrix {
+  width: max-content;
+  min-width: 100%;
+}
+
+.competency-matrix th,
+.competency-matrix td {
+  min-width: 132px;
+  white-space: nowrap;
+}
+
+.competency-matrix .competency-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 190px;
+  max-width: 240px;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+}
+
+.competency-matrix thead .competency-sticky {
+  z-index: 3;
+  background: var(--surface-muted);
+}
+
+.competency-matrix tbody th.competency-sticky {
+  color: var(--text);
+  font-size: 14px;
+  text-transform: none;
+}
+
+.competency-matrix .competency-subject {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.competency-teacher-cell strong {
+  display: block;
+}
+
+.competency-cell {
+  text-align: center;
+}
+
+.matrix-muted-cell {
+  color: var(--muted);
+  background: #fbfcfa;
 }
 
 small {

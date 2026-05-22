@@ -19,6 +19,8 @@ export type AdminSubjectRow = {
 
 export type AdminCompetencyRow = {
   id: string;
+  teacher_id: string;
+  course_subject_id: string;
   teacher_label: string;
   subject_name: string;
   level: string;
@@ -97,6 +99,8 @@ export async function getAdminCompetenciesData() {
   const competencyRows = competencies.data
     .map((competency): AdminCompetencyRow => ({
       id: competency.id,
+      teacher_id: competency.teacher_id,
+      course_subject_id: competency.course_subject_id,
       teacher_label: teacherLabel(teacherMap.get(competency.teacher_id)),
       subject_name: subjectMap.get(competency.course_subject_id)?.name || "-",
       level: competency.level || "primary"

@@ -43,3 +43,7 @@ Tabellen har RLS slået til og ingen anon write policies.
 ## Første UI
 
 `/admin/kompetencer` viser lærere, fag og eksisterende kompetencer med disabled checkboxes. Siden skriver ikke data og har ingen gem-knapper.
+
+Siden har URL-baserede filtre på lærer, fag og visningstype. Filtrene ændrer kun den read-only visning, fx matrixens viste lærere/fag og tællinger. De må ikke oprette eller ændre kompetencer.
+
+Egentlige ændringer kommer senere via server-side write med rollecheck og audit-log i `data_change_log`.
