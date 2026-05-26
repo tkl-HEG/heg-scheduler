@@ -31,7 +31,7 @@ export function createBrowserSupabaseClient(): SupabaseClient | null {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: true
+        detectSessionInUrl: false
       }
     });
   }

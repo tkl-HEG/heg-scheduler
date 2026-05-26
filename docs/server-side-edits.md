@@ -133,3 +133,13 @@ Route handleren er nu koblet til UI for owner/admin/editor via `/admin/kompetenc
 - Ingen service role key i client components.
 - Ingen ændringer til `lesson_bookings`.
 - Ingen generator-flow.
+
+## Magic-link callback
+
+`/admin/status` håndterer nu Supabase magic-link callback i browseren ved at:
+
+- bruge `emailRedirectTo` til `/admin/status`
+- udveksle `code` via `exchangeCodeForSession`
+- understøtte session-data i URL-hash med `setSession`
+- rydde callback-parametre fra URL med `history.replaceState`
+- hente session igen med `supabase.auth.getSession()` før status kaldes
