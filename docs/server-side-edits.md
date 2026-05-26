@@ -48,9 +48,34 @@ Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
-Login sker med Supabase magic link via `signInWithOtp`. Der hardcodes ingen passwords, og service role key importeres ikke i client components.
+Anbefalet login sker nu med Supabase email OTP-kode via `signInWithOtp` og `verifyOtp`. Der hardcodes ingen passwords, og service role key importeres ikke i client components.
 
-`signInWithOtp` skal bruge:
+Koden sendes med:
+
+```ts
+supabase.auth.signInWithOtp({
+  email: trimmedEmail,
+  options: {
+    shouldCreateUser: false
+  }
+})
+```
+
+Koden bekræftes med:
+
+```ts
+supabase.auth.verifyOtp({
+  email: trimmedEmail,
+  token: trimmedToken,
+  type: "email"
+})
+```
+
+Efter `verifyOtp` henter `/admin/status` sessionen med `supabase.auth.getSession()` og kalder derefter `GET /api/admin/status` med `Authorization: Bearer <access_token>`.
+
+Magic-link callback findes stadig som fallback, men kan fejle i Outlook/Microsoft-mailmiljøer, fordi link-scanning kan åbne linket først eller fjerne URL-fragmenter.
+
+Hvis magic-link fallback bruges igen senere, skal redirect sættes sådan:
 
 ```ts
 options: {

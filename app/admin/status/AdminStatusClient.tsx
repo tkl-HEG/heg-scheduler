@@ -43,28 +43,42 @@ function asText(value: string | null | undefined) {
   return value || "-";
 }
 
-function formatRateLimitedLoginError(error: AuthError | null) {
-  if (!error) {
-    return "Login-link kunne ikke sendes.";
+function isRateLimit(error: AuthError | null) {
+  const combined = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();
+  return error?.status === 429 || combined.includes("rate limit") || combined.includes("too many");
+}
+
+function formatSendCodeError(error: AuthError | null) {
+  if (isRateLimit(error)) {
+    return "Der er sendt for mange login-koder. Vent 30-60 minutter og prøv igen.";
   }
 
-  const combined = `${error.code || ""} ${error.message || ""}`.toLowerCase();
+  return error?.message || "Login-kode kunne ikke sendes.";
+}
 
-  if (error.status === 429 || combined.includes("rate limit")) {
-    return "Der er sendt for mange login-links. Vent 30-60 minutter og prøv igen.";
+function formatVerifyCodeError(error: AuthError | null) {
+  const combined = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();
+
+  if (combined.includes("expired") || combined.includes("invalid") || combined.includes("otp")) {
+    return "Login-koden er forkert eller udløbet. Send en ny kode og brug den nyeste kode.";
   }
 
-  return error.message || "Login-link kunne ikke sendes.";
+  return error?.message || "Login-koden kunne ikke bekræftes.";
 }
 
 export function AdminStatusClient() {
   const config = getSupabaseBrowserConfig();
   const supabase = createBrowserSupabaseClient();
   const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<StatusResponse>(emptyStatus());
   const [loading, setLoading] = useState(true);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [verifyingCode, setVerifyingCode] = useState(false);
   const [message, setMessage] = useState<string | null>(config.issue);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function loadStatus(nextSession: Session | null) {
     if (!nextSession) {
@@ -115,6 +129,15 @@ export function AdminStatusClient() {
     }
   }
 
+  async function refreshSessionAndStatus() {
+    if (!supabase) return;
+
+    const { data } = await supabase.auth.getSession();
+    setSession(data.session);
+    setEmail(data.session?.user.email || email);
+    await loadStatus(data.session);
+  }
+
   useEffect(() => {
     if (!supabase) {
       setLoading(false);
@@ -145,31 +168,87 @@ export function AdminStatusClient() {
     };
   }, [supabase]);
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+  async function handleSendCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!supabase) {
-      setMessage(config.issue);
+      setErrorMessage(config.issue);
       return;
     }
 
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
-      setMessage("Skriv en emailadresse.");
+      setErrorMessage("Skriv en emailadresse.");
       return;
     }
 
+    setSendingCode(true);
     setMessage(null);
+    setErrorMessage(null);
+    setToken("");
 
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmedEmail,
       options: {
-        emailRedirectTo: window.location.origin + "/auth/callback?next=/admin/status"
+        shouldCreateUser: false
       }
     });
 
-    setMessage(error ? formatRateLimitedLoginError(error) : "Login-link er sendt, hvis emailen kan bruges.");
+    setSendingCode(false);
+
+    if (error) {
+      setErrorMessage(formatSendCodeError(error));
+      return;
+    }
+
+    setCodeSent(true);
+    setEmail(trimmedEmail);
+    setMessage("Login-kode er sendt. Indtast koden fra mailen herunder.");
+  }
+
+  async function handleVerifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!supabase) {
+      setErrorMessage(config.issue);
+      return;
+    }
+
+    const trimmedEmail = email.trim();
+    const trimmedToken = token.trim();
+
+    if (!trimmedEmail) {
+      setErrorMessage("Skriv en emailadresse.");
+      return;
+    }
+
+    if (!trimmedToken) {
+      setErrorMessage("Skriv login-koden fra mailen.");
+      return;
+    }
+
+    setVerifyingCode(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    const { error } = await supabase.auth.verifyOtp({
+      email: trimmedEmail,
+      token: trimmedToken,
+      type: "email"
+    });
+
+    if (error) {
+      setVerifyingCode(false);
+      setErrorMessage(formatVerifyCodeError(error));
+      return;
+    }
+
+    await refreshSessionAndStatus();
+    setVerifyingCode(false);
+    setCodeSent(false);
+    setToken("");
+    setMessage("Login lykkedes.");
   }
 
   async function handleLogout() {
@@ -177,6 +256,9 @@ export function AdminStatusClient() {
 
     const { error } = await supabase.auth.signOut();
     setMessage(error ? error.message : "Du er logget ud.");
+    setErrorMessage(null);
+    setCodeSent(false);
+    setToken("");
     setSession(null);
     setStatus(emptyStatus());
   }
@@ -189,7 +271,7 @@ export function AdminStatusClient() {
       </section>
 
       <section className="content-section">
-        <h2>Login</h2>
+        <h2>Login med kode</h2>
         {session ? (
           <div className="status-actions">
             <span>
@@ -200,22 +282,47 @@ export function AdminStatusClient() {
             </button>
           </div>
         ) : (
-          <form className="filter-bar admin-login-form" onSubmit={handleLogin}>
-            <label>
-              Email
-              <input
-                autoComplete="email"
-                name="email"
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="navn@heguddannelser.dk"
-                type="email"
-                value={email}
-              />
-            </label>
-            <button type="submit">Send login-link</button>
-          </form>
+          <>
+            <form className="filter-bar admin-login-form" onSubmit={handleSendCode}>
+              <label>
+                Email
+                <input
+                  autoComplete="email"
+                  name="email"
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="navn@heguddannelser.dk"
+                  type="email"
+                  value={email}
+                />
+              </label>
+              <button disabled={sendingCode} type="submit">
+                {sendingCode ? "Sender..." : "Send login-kode"}
+              </button>
+            </form>
+
+            {codeSent ? (
+              <form className="filter-bar admin-login-form" onSubmit={handleVerifyCode}>
+                <label>
+                  Kode
+                  <input
+                    autoComplete="one-time-code"
+                    inputMode="numeric"
+                    name="token"
+                    onChange={(event) => setToken(event.target.value)}
+                    placeholder="6-cifret kode"
+                    type="text"
+                    value={token}
+                  />
+                </label>
+                <button disabled={verifyingCode} type="submit">
+                  {verifyingCode ? "Bekræfter..." : "Bekræft kode"}
+                </button>
+              </form>
+            ) : null}
+          </>
         )}
         {message ? <p className="status-message">{message}</p> : null}
+        {errorMessage ? <p className="notice">{errorMessage}</p> : null}
       </section>
 
       <section className="content-section">
