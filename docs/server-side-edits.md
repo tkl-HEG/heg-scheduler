@@ -45,6 +45,8 @@ Anon får ikke insert/update/delete på `organization_members`, og `data_change_
 
 Status efter test: email-kode-login via Resend/Supabase virker. Brugere med `owner`, `admin` eller `editor` kan redigere lærerkompetencer, og add/remove skriver audit-rækker i `data_change_log`. Ikke-loggede brugere og `viewer` forbliver read-only.
 
+Samme sikkerhedsmodel bruges til admin-redigering af lærer-årstimer på `/admin/opgaveoversigt`: owner/admin/editor kan ændre `allocated_hours`, mens ikke-loggede brugere og `viewer` ser read-only fallback. Ændringer sendes til `PATCH /api/admin/teacher-workload-allocations`, som kræver bearer token, rollechecker server-side og skriver before/after audit i `data_change_log`.
+
 Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
 
 - `NEXT_PUBLIC_SUPABASE_URL`

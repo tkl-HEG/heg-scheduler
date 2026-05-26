@@ -108,6 +108,8 @@ Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kale
 
 `/admin/kompetencer` er en guarded adminside for lærerkompetencer. Email-kode-login via Resend/Supabase virker, og `owner`, `admin` og `editor` kan redigere kompetencer; add/remove skrives til `data_change_log` som audit. Ikke-loggede brugere og `viewer` ser siden read-only.
 
+`/admin/opgaveoversigt` bruger samme sikkerhedsmodel til lærer-årstimer: `owner`, `admin` og `editor` kan redigere `allocated_hours`, mens ikke-loggede brugere og `viewer` er read-only. Ændringer sker server-side og audit-logges med before/after i `data_change_log`.
+
 Se `docs/server-side-edits.md` for den planlagte server-only write-model og Vercel environment variables.
 
 Hvis Supabase RLS blokerer læsning med anon key, viser appen en fejlbesked på siden. Se `docs/app-dashboard.md` for anbefalede næste trin.

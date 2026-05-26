@@ -3,6 +3,8 @@ import { readRows } from "./supabase";
 type Row = Record<string, any>;
 
 export type WorkloadStatusRow = {
+  workload_year_id: string;
+  workload_year_label: string;
   teacher_id: string;
   initials: string;
   display_name: string | null;
@@ -51,6 +53,8 @@ export async function getWorkloadOverviewData() {
   const statusRows = status.data
     .filter((row) => !activeYearId || row.workload_year_id === activeYearId || row.workload_year_label === activeLabel)
     .map((row): WorkloadStatusRow => ({
+      workload_year_id: row.workload_year_id,
+      workload_year_label: row.workload_year_label,
       teacher_id: row.teacher_id,
       initials: row.initials,
       display_name: row.display_name ?? null,

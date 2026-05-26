@@ -6,6 +6,7 @@ const navItems = [
   { href: "/importstatus", label: "Importstatus" },
   { href: "/review", label: "Review" },
   { href: "/admin/kompetencer", label: "Admin kompetencer" },
+  { href: "/admin/opgaveoversigt", label: "Admin opgaveoversigt" },
   { href: "/admin/status", label: "Admin status" },
   { href: "/opgaveoversigt", label: "Opgaveoversigt" },
   { href: "/hold", label: "Hold" },
