@@ -41,7 +41,7 @@ type AllocationRow = {
   updated_at: string;
 };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOCATION_SELECT =
   "id,workload_year_id,teacher_id,allocated_hours,teaching_hours_target,non_teaching_hours,notes,source,metadata,created_at,updated_at";
 
@@ -53,8 +53,25 @@ function isRecord(value: unknown): value is RequestBody {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isUuid(value: unknown): value is string {
-  return typeof value === "string" && UUID_PATTERN.test(value);
+function normalizeUuid(value: unknown) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return UUID_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+function invalidInput(status: number, error: string, body: RequestBody) {
+  const response: Record<string, unknown> = { success: false, error };
+
+  if (process.env.NODE_ENV !== "production") {
+    response.debug = {
+      received: {
+        teacher_id: body.teacher_id,
+        workload_year_id: body.workload_year_id,
+        allocated_hours: body.allocated_hours
+      }
+    };
+  }
+
+  return json(status, response);
 }
 
 function parseAllocatedHours(value: unknown) {
@@ -119,23 +136,26 @@ export async function PATCH(request: NextRequest) {
     return json(400, { success: false, error: "Request body skal være et JSON object." });
   }
 
-  if (!isUuid(rawBody.teacher_id)) {
-    return json(400, { success: false, error: "teacher_id skal være en gyldig uuid." });
+  const teacherId = normalizeUuid(rawBody.teacher_id);
+  const workloadYearId = normalizeUuid(rawBody.workload_year_id);
+
+  if (!teacherId) {
+    return invalidInput(400, "teacher_id skal være en gyldig uuid.", rawBody);
   }
 
-  if (!isUuid(rawBody.workload_year_id)) {
-    return json(400, { success: false, error: "workload_year_id skal være en gyldig uuid." });
+  if (!workloadYearId) {
+    return invalidInput(400, "workload_year_id skal være en gyldig uuid.", rawBody);
   }
 
   const allocatedHours = parseAllocatedHours(rawBody.allocated_hours);
 
   if (allocatedHours === null) {
-    return json(400, { success: false, error: "allocated_hours skal være et tal mellem 0 og 999999.99." });
+    return invalidInput(400, "allocated_hours skal være et tal mellem 0 og 999999.99.", rawBody);
   }
 
   const [teacherResult, workloadYearResult] = await Promise.all([
-    client.from("teachers").select("id,school_id").eq("id", rawBody.teacher_id).maybeSingle<TeacherRow>(),
-    client.from("workload_years").select("id,school_id,label").eq("id", rawBody.workload_year_id).maybeSingle<WorkloadYearRow>()
+    client.from("teachers").select("id,school_id").eq("id", teacherId).maybeSingle<TeacherRow>(),
+    client.from("workload_years").select("id,school_id,label").eq("id", workloadYearId).maybeSingle<WorkloadYearRow>()
   ]);
 
   if (teacherResult.error) {
@@ -182,8 +202,8 @@ export async function PATCH(request: NextRequest) {
   const existing = await client
     .from("teacher_workload_allocations")
     .select(ALLOCATION_SELECT)
-    .eq("workload_year_id", rawBody.workload_year_id)
-    .eq("teacher_id", rawBody.teacher_id)
+    .eq("workload_year_id", workloadYearId)
+    .eq("teacher_id", teacherId)
     .maybeSingle<AllocationRow>();
 
   if (existing.error) {
@@ -211,8 +231,8 @@ export async function PATCH(request: NextRequest) {
     : await client
         .from("teacher_workload_allocations")
         .insert({
-          workload_year_id: rawBody.workload_year_id,
-          teacher_id: rawBody.teacher_id,
+          workload_year_id: workloadYearId,
+          teacher_id: teacherId,
           allocated_hours: allocatedHours,
           source: "admin_ui",
           metadata

@@ -51,6 +51,10 @@ Admin workload-rækker vises primært fra `v_teacher_workload_status`. `teachers
 
 Gem på `/admin/opgaveoversigt` aktiveres kun for rækker med gyldige UUID’er i `teacher_id` og `workload_year_id`, write-adgang og et gyldigt timetal. Klienten sender kun `teacher_id`, `workload_year_id` og `allocated_hours` til server-routen og falder aldrig tilbage til initialer eller navn som id. `Rest` beregnes lokalt fra den aktuelle inputværdi som `allocated_hours - assigned_hours_known - assigned_hours_missing`, så tallet opdateres med det samme og efter gem.
 
+Inputværdien i tabellen holdes adskilt fra den gemte/committed værdi. UI markerer først “Sidst gemt” og opdaterer den committed `allocated_hours`, når `PATCH /api/admin/teacher-workload-allocations` svarer OK. Hvis serveren returnerer 400/403/500, beholdes inputværdien som kladde, men rækken markeres ikke som gemt. Rækker uden UUID kan fortsat ses, men kan ikke gemmes.
+
+UUID-valideringen for workload gem bruger Postgres UUID-formatet `8-4-4-4-12` hextegn. Den må ikke kræve en bestemt UUID-version eller variant, fordi eksisterende database-id’er kan være gyldige Postgres UUID’er uden at matche en snæver RFC-version/variant-regex.
+
 Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
 
 - `NEXT_PUBLIC_SUPABASE_URL`

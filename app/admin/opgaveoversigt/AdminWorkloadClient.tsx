@@ -33,14 +33,24 @@ type AdminStatusResponse = {
 
 type ApiResult =
   | { success: true; status: "created" | "updated"; allocation: { allocated_hours: number } }
-  | { success: false; error: string };
+  | {
+      success: false;
+      error: string;
+      debug?: {
+        received?: {
+          teacher_id?: unknown;
+          workload_year_id?: unknown;
+          allocated_hours?: unknown;
+        };
+      };
+    };
 
 type Props = {
   rows: WorkloadStatusRow[];
   debug?: WorkloadDebugInfo;
 };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function emptyStatus(): AdminStatusResponse {
   return {
@@ -114,6 +124,21 @@ function rowIdentityIssue(row: WorkloadStatusRow) {
   return null;
 }
 
+function rowKey(row: WorkloadStatusRow) {
+  return `${row.workload_year_id || "missing-year"}:${row.teacher_id || row.initials || row.display_name || "missing-teacher"}`;
+}
+
+function saveDebugText(input: {
+  initials: string;
+  teacher_id: string | null;
+  workload_year_id: string | null;
+  allocated_hours: number | null;
+}) {
+  return `Debug: initials=${input.initials || "-"}, teacher_id=${input.teacher_id || "-"}, workload_year_id=${
+    input.workload_year_id || "-"
+  }, allocated_hours=${input.allocated_hours ?? "-"}`;
+}
+
 export function AdminWorkloadClient({ rows, debug }: Props) {
   const config = getSupabaseBrowserConfig();
   const supabase = createBrowserSupabaseClient();
@@ -122,14 +147,17 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [localRows, setLocalRows] = useState<WorkloadStatusRow[]>(rows);
   const [draftHours, setDraftHours] = useState<Record<string, string>>({});
-  const [savingTeacherId, setSavingTeacherId] = useState<string | null>(null);
-  const [lastSavedTeacherId, setLastSavedTeacherId] = useState<string | null>(null);
+  const [savingRowKey, setSavingRowKey] = useState<string | null>(null);
+  const [lastSavedRowKey, setLastSavedRowKey] = useState<string | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(config.issue);
 
   useEffect(() => {
     setLocalRows(rows);
     setDraftHours({});
+    setRowErrors({});
+    setLastSavedRowKey(null);
   }, [rows]);
 
   useEffect(() => {
@@ -212,12 +240,14 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
   const canWrite = Boolean(session && status.hasWriteAccess);
 
   async function saveAllocatedHours(row: WorkloadStatusRow) {
+    const key = rowKey(row);
+
     if (!session || !status.hasWriteAccess) {
       setError("Log ind som owner/admin/editor for at redigere.");
       return;
     }
 
-    const draftValue = draftHours[row.teacher_id] ?? inputValue(row.allocated_hours);
+    const draftValue = draftHours[key] ?? inputValue(row.allocated_hours);
     const allocatedHours = parseHours(draftValue);
     const teacherId = normalizeUuid(row.teacher_id);
     const workloadYearId = normalizeUuid(row.workload_year_id);
@@ -233,34 +263,48 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
       }
       setNotice(null);
       setError(identityIssue);
+      setRowErrors((current) => ({
+        ...current,
+        [key]: `${identityIssue}. ${saveDebugText({
+          initials: row.initials,
+          teacher_id: teacherId,
+          workload_year_id: workloadYearId,
+          allocated_hours: allocatedHours
+        })}`
+      }));
       return;
     }
 
     if (allocatedHours === null) {
       setNotice(null);
       setError("Årstimer skal være et tal mellem 0 og 999999.99.");
+      setRowErrors((current) => ({
+        ...current,
+        [key]: `Årstimer skal være et gyldigt tal. ${saveDebugText({
+          initials: row.initials,
+          teacher_id: teacherId,
+          workload_year_id: workloadYearId,
+          allocated_hours: allocatedHours
+        })}`
+      }));
       return;
     }
 
-    setSavingTeacherId(row.teacher_id);
-    setLastSavedTeacherId(null);
+    const payload = {
+      teacher_id: teacherId,
+      workload_year_id: workloadYearId,
+      allocated_hours: allocatedHours
+    };
+
+    setSavingRowKey(key);
+    setLastSavedRowKey(null);
     setNotice(null);
     setError(null);
-
-    const previousRows = localRows;
-
-    setLocalRows((current) =>
-      current.map((currentRow) =>
-        currentRow.teacher_id === row.teacher_id
-          ? {
-              ...currentRow,
-              allocated_hours: allocatedHours,
-              remaining_hours: remainingFor(currentRow, allocatedHours),
-              status: statusFor(currentRow, allocatedHours)
-            }
-          : currentRow
-      )
-    );
+    setRowErrors((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
 
     try {
       const response = await fetch("/api/admin/teacher-workload-allocations", {
@@ -269,33 +313,68 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({
-          teacher_id: teacherId,
-          workload_year_id: workloadYearId,
-          allocated_hours: allocatedHours
-        })
+        body: JSON.stringify(payload)
       });
 
       const body = (await response.json()) as ApiResult;
 
       if (!response.ok || !body.success) {
-        setLocalRows(previousRows);
         const apiError = "error" in body ? body.error : "Ukendt fejl";
+        const received = "debug" in body ? body.debug?.received : null;
+        const debugText = saveDebugText({
+          initials: row.initials,
+          teacher_id: String(received?.teacher_id ?? payload.teacher_id),
+          workload_year_id: String(received?.workload_year_id ?? payload.workload_year_id),
+          allocated_hours: parseHours(String(received?.allocated_hours ?? payload.allocated_hours))
+        });
         setError(`Gem fejlede (${response.status}): ${apiError}`);
+        setRowErrors((current) => ({
+          ...current,
+          [key]: `Gem fejlede (${response.status}): ${apiError}. ${debugText}`
+        }));
         return;
       }
 
+      const savedAllocatedHours = body.allocation.allocated_hours;
+
+      setLocalRows((current) =>
+        current.map((currentRow) =>
+          rowKey(currentRow) === key
+            ? {
+                ...currentRow,
+                allocated_hours: savedAllocatedHours,
+                remaining_hours: remainingFor(currentRow, savedAllocatedHours),
+                status: statusFor(currentRow, savedAllocatedHours)
+              }
+            : currentRow
+        )
+      );
       setDraftHours((current) => ({
         ...current,
-        [row.teacher_id]: inputValue(allocatedHours)
+        [key]: inputValue(savedAllocatedHours)
       }));
       setNotice(`Årstimer gemt for ${row.initials}.`);
-      setLastSavedTeacherId(row.teacher_id);
+      setError(null);
+      setRowErrors((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      setLastSavedRowKey(key);
     } catch (mutationError) {
-      setLocalRows(previousRows);
-      setError(mutationError instanceof Error ? mutationError.message : String(mutationError));
+      const message = mutationError instanceof Error ? mutationError.message : String(mutationError);
+      setError(message);
+      setRowErrors((current) => ({
+        ...current,
+        [key]: `${message}. ${saveDebugText({
+          initials: row.initials,
+          teacher_id: payload.teacher_id,
+          workload_year_id: payload.workload_year_id,
+          allocated_hours: payload.allocated_hours
+        })}`
+      }));
     } finally {
-      setSavingTeacherId(null);
+      setSavingRowKey(null);
     }
   }
 
@@ -353,9 +432,10 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
             <tbody>
               {localRows.length ? (
                 localRows.map((row) => {
-                  const isSaving = savingTeacherId === row.teacher_id;
+                  const key = rowKey(row);
+                  const isSaving = savingRowKey === key;
                   const identityIssue = rowIdentityIssue(row);
-                  const draftValue = draftHours[row.teacher_id] ?? inputValue(row.allocated_hours);
+                  const draftValue = draftHours[key] ?? inputValue(row.allocated_hours);
                   const currentAllocatedHours = parseHours(draftValue);
                   const canEditRow = canWrite && !identityIssue;
                   const canSaveRow = canEditRow && currentAllocatedHours !== null;
@@ -363,7 +443,7 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
                   const displayedStatus = statusFor(row, currentAllocatedHours);
 
                   return (
-                    <tr key={`${row.workload_year_id}:${row.teacher_id}`}>
+                    <tr key={key}>
                       <td>
                         <strong>{asText(row.initials)}</strong>
                       </td>
@@ -375,11 +455,11 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
                           disabled={!canEditRow || isSaving}
                           inputMode="decimal"
                           min="0"
-                          name={`allocated_hours_${row.teacher_id}`}
+                          name={`allocated_hours_${key}`}
                           onChange={(event) =>
                             setDraftHours((current) => ({
                               ...current,
-                              [row.teacher_id]: event.target.value
+                              [key]: event.target.value
                             }))
                           }
                           readOnly={!canEditRow}
@@ -403,7 +483,8 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
                           {isSaving ? "Gemmer..." : "Gem"}
                         </button>
                         {identityIssue ? <small>{identityIssue}</small> : null}
-                        {lastSavedTeacherId === row.teacher_id && !isSaving ? <small>Sidst gemt</small> : null}
+                        {rowErrors[key] ? <small>{rowErrors[key]}</small> : null}
+                        {lastSavedRowKey === key && !isSaving ? <small>Sidst gemt</small> : null}
                       </td>
                     </tr>
                   );
