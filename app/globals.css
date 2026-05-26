@@ -231,6 +231,39 @@ h3 {
   font-weight: 700;
 }
 
+.status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.button-secondary {
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.status-message {
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.admin-status-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-login-form {
+  margin-bottom: 0;
+}
+
 .content-section,
 .review-panel,
 .group-panel {

@@ -39,6 +39,21 @@ Migration `017_admin_auth_roles.sql` forbereder også en initial owner for `tkl@
 
 Anon får ikke insert/update/delete på `organization_members`, og `data_change_log` har fortsat ingen anon/authenticated write policies.
 
+## Login/status-flow
+
+`/admin/status` er den første login- og rollekontrolside. Den aktiverer ikke kompetence-redigering.
+
+Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+Login sker med Supabase magic link via `signInWithOtp`. Der hardcodes ingen passwords, og service role key importeres ikke i client components.
+
+Når brugeren er logget ind, kalder siden `GET /api/admin/status` med `Authorization: Bearer <access_token>`. Route handleren kører server-side, validerer tokenet, slår organization `heg` op og returnerer aktiv rolle i `organization_members`. `owner`, `admin` og `editor` vises som write-adgang; `viewer` eller manglende rolle vises som ingen write-adgang.
+
+Siden er kun status og login/logout. UI-write til `/admin/kompetencer` må først aktiveres, når login, rollecheck og audit-flow er testet end-to-end.
+
 ## Write flow for lærerkompetencer
 
 Den senere write-sti bør gøre dette i rækkefølge:
