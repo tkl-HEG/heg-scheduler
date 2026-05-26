@@ -1,14 +1,8 @@
 import Link from "next/link";
-import { DataTable } from "../../../components/DataTable";
 import { PageHeader } from "../../../components/PageHeader";
 import { StatusMessage } from "../../../components/StatusMessage";
-import { asText } from "../../../lib/format";
-import {
-  getAdminCompetenciesData,
-  type AdminCompetencyMatrixRow,
-  type AdminSubjectRow,
-  type AdminTeacherRow
-} from "../../../lib/adminCompetenciesData";
+import { AdminCompetenciesClient } from "./AdminCompetenciesClient";
+import { getAdminCompetenciesData, type AdminCompetencyMatrixRow, type AdminSubjectRow, type AdminTeacherRow } from "../../../lib/adminCompetenciesData";
 
 export const dynamic = "force-dynamic";
 
@@ -129,8 +123,8 @@ export default async function AdminCompetenciesPage({ searchParams }: { searchPa
       <StatusMessage issues={issues} />
 
       <section className="info-box">
-        Dette er første sikre fundament for redigering af lærerkompetencer. Siden er read-only: checkboxene er kun en
-        forhåndsvisning af den kommende redigeringsform, og der findes ingen gem-knapper eller aktive write actions.
+        Redigering er nu aktiveret for owner/admin/editor via kontrolleret server-side write. Alle andre ser stadig
+        read-only preview, og audit-loggen i <code>data_change_log</code> bliver brugt ved hver ændring.
       </section>
 
       <form action="/admin/kompetencer" className="filter-bar" method="get">
@@ -195,106 +189,11 @@ export default async function AdminCompetenciesPage({ searchParams }: { searchPa
       </div>
 
       <section className="info-box">
-        Senere writes skal ske server-side med Supabase Auth, rollecheck og audit-log i <code>data_change_log</code>.
-        Frontend må fortsat kun bruge public/anon key.
+        Log ind som owner/admin/editor for at redigere. Browse-session og write-adgang hentes i browseren via public
+        Supabase client, mens selve ændringerne stadig går gennem server-route med audit.
       </section>
 
-      <h2>Kompetencematrix</h2>
-      <div className="table-wrap competency-table-wrap">
-        <table className="competency-matrix">
-          <thead>
-            <tr>
-              <th className="competency-sticky" scope="col">
-                Lærer
-              </th>
-              {filteredSubjects.map((subject) => (
-                <th className="competency-subject" key={subject.id} scope="col" title={subject.name}>
-                  {subject.name}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.length && filteredSubjects.length ? (
-              filteredRows.map((row) => {
-                const statesBySubject = new Map(row.subject_states.map((state) => [state.subject_id, state]));
-
-                return (
-                  <tr key={row.teacher.id}>
-                    <th className="competency-sticky competency-teacher-cell" scope="row">
-                      <strong>{asText(row.teacher.initials)}</strong>
-                      <small>{asText(row.teacher.display_name, "")}</small>
-                    </th>
-                    {filteredSubjects.map((subject) => {
-                      const state = statesBySubject.get(subject.id);
-                      const showState = Boolean(state && stateMatchesMode(state, filters.mode));
-
-                      return (
-                        <td className={`competency-cell${showState ? "" : " matrix-muted-cell"}`} key={subject.id}>
-                          {showState && state ? (
-                            <label className="checkbox-preview" title={state.subject_name}>
-                              <input checked={state.has_competency} disabled readOnly type="checkbox" />
-                              <span>{state.level || "-"}</span>
-                            </label>
-                          ) : (
-                            <span aria-hidden="true">-</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td className="empty-cell" colSpan={Math.max(filteredSubjects.length + 1, 1)}>
-                  Ingen rækker fundet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <h2>Lærere</h2>
-      <DataTable
-        columns={["Initialer", "Navn", "Kompetencer i visning", "Pseudo-resource"]}
-        rows={filteredRows.map((row) => [
-          <strong key="initials">{asText(row.teacher.initials)}</strong>,
-          asText(row.teacher.display_name),
-          row.subject_states.filter((state) => state.has_competency && stateMatchesMode(state, filters.mode)).length,
-          row.teacher.is_pseudo_resource ? "Ja" : "Nej"
-        ])}
-      />
-
-      <h2>Fag</h2>
-      <DataTable
-        columns={["Fag", "Nøgle", "Kompetencer i visning"]}
-        rows={filteredSubjects.map((subject) => [
-          asText(subject.name),
-          asText(subject.normalized_key),
-          filteredRows.reduce((sum, row) => {
-            const state = row.subject_states.find((subjectState) => subjectState.subject_id === subject.id);
-            return sum + (state?.has_competency && stateMatchesMode(state, filters.mode) ? 1 : 0);
-          }, 0)
-        ])}
-      />
-
-      <h2>Eksisterende kompetencer</h2>
-      <DataTable
-        columns={["Lærer", "Fag", "Niveau", "Redigering"]}
-        rows={filteredCompetencies.map((competency) => [
-          asText(competency.teacher_label),
-          asText(competency.subject_name),
-          <span className="badge badge-info" key="level">
-            {asText(competency.level)}
-          </span>,
-          <label className="checkbox-preview" key="edit-preview">
-            <input checked disabled readOnly type="checkbox" />
-            <span>Kommer senere</span>
-          </label>
-        ])}
-      />
+      <AdminCompetenciesClient rows={filteredRows} subjects={filteredSubjects} />
     </>
   );
 }

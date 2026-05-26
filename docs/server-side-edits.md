@@ -1,6 +1,6 @@
 # Server-side edits
 
-Dette dokument beskriver den anbefalede model for senere redigering af lærerkompetencer. Modellen er ikke koblet på UI endnu, og `/admin/kompetencer` forbliver read-only.
+Dette dokument beskriver modellen for redigering af lærerkompetencer. `/admin/kompetencer` bruger stadig read-only fallback for viewer og ikke-loggede brugere, men UI-write er nu aktiveret for owner/admin/editor via den kontrollerede server-route.
 
 ## Placering
 
@@ -41,7 +41,7 @@ Anon får ikke insert/update/delete på `organization_members`, og `data_change_
 
 ## Login/status-flow
 
-`/admin/status` er den første login- og rollekontrolside. Den aktiverer ikke kompetence-redigering.
+`/admin/status` er login- og rollekontrolsiden. Den viser stadig status, men kompetence-redigering afhænger nu af write-adgang i `organization_members`.
 
 Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
 
@@ -95,7 +95,7 @@ For lærerkompetencer bør audit-rækken bruge:
 - `source = app`
 - `metadata`: fx `route`, `teacher_id`, `course_subject_id` og UI-kontekst
 
-## Første route handler
+## Route handler
 
 Den første server-side route handler ligger i `app/api/admin/teacher-competencies/route.ts`.
 
@@ -124,11 +124,11 @@ Route handleren:
 - sætter `changed_by` fra den validerede Auth bruger
 - returnerer JSON med `success`, `status` eller `error`
 
-Route handleren må stadig ikke kobles til UI, før Auth + rollecheck er testet end-to-end på Vercel. Når UI-write skal aktiveres, bør den endelige databaseændring og audit-log samles i en Postgres RPC/transaktion, så der ikke kan opstå en kompetenceændring uden audit-række.
+Route handleren er nu koblet til UI for owner/admin/editor via `/admin/kompetencer`. Den skal stadig være server-side only, og hvis vi senere udvider write-flowet, bør den endelige databaseændring og audit-log samles i en Postgres RPC/transaktion, så der ikke kan opstå en kompetenceændring uden audit-række.
 
-## Hvad vi ikke gør endnu
+## Hvad vi stadig ikke gør
 
-- Ingen aktive write-knapper på `/admin/kompetencer`.
+- Ingen write-knapper for viewer eller ikke-loggede brugere på `/admin/kompetencer`.
 - Ingen anon insert/update/delete policies.
 - Ingen service role key i client components.
 - Ingen ændringer til `lesson_bookings`.
