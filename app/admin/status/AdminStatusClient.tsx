@@ -28,16 +28,6 @@ type StatusResponse = {
   error?: string;
 };
 
-type AuthCallbackInfo = {
-  code: string | null;
-  error: string | null;
-  errorCode: string | null;
-  errorDescription: string | null;
-  accessToken: string | null;
-  refreshToken: string | null;
-  hasCallbackData: boolean;
-};
-
 function emptyStatus(): StatusResponse {
   return {
     success: true,
@@ -51,41 +41,6 @@ function emptyStatus(): StatusResponse {
 
 function asText(value: string | null | undefined) {
   return value || "-";
-}
-
-function readAuthCallbackInfo(): AuthCallbackInfo | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const url = new URL(window.location.href);
-  const searchParams = url.searchParams;
-  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-
-  const code = searchParams.get("code");
-  const error = searchParams.get("error") || hashParams.get("error");
-  const errorCode = searchParams.get("error_code") || hashParams.get("error_code");
-  const errorDescription = searchParams.get("error_description") || hashParams.get("error_description");
-  const accessToken = hashParams.get("access_token");
-  const refreshToken = hashParams.get("refresh_token");
-
-  return {
-    code,
-    error,
-    errorCode,
-    errorDescription,
-    accessToken,
-    refreshToken,
-    hasCallbackData: Boolean(code || error || errorCode || errorDescription || (accessToken && refreshToken))
-  };
-}
-
-function clearAuthCallbackUrl() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.history.replaceState({}, document.title, window.location.pathname);
 }
 
 function formatRateLimitedLoginError(error: AuthError | null) {
@@ -102,28 +57,6 @@ function formatRateLimitedLoginError(error: AuthError | null) {
   return error.message || "Login-link kunne ikke sendes.";
 }
 
-function formatCallbackError(info: AuthCallbackInfo) {
-  if (info.errorCode === "otp_expired") {
-    return "Login-linket er udløbet eller allerede brugt. Send et nyt login-link og brug kun det nyeste link.";
-  }
-
-  const parts = [info.errorCode, info.error, info.errorDescription].filter(Boolean);
-
-  if (parts.length) {
-    return `Login fejlede: ${parts.join(" / ")}`;
-  }
-
-  return "Login fejlede: Ukendt fejl.";
-}
-
-function formatExchangeError(error: AuthError | null) {
-  if (!error) {
-    return "Login fejlede: Session kunne ikke oprettes.";
-  }
-
-  return `Login fejlede: ${error.message || "Session kunne ikke oprettes."}`;
-}
-
 export function AdminStatusClient() {
   const config = getSupabaseBrowserConfig();
   const supabase = createBrowserSupabaseClient();
@@ -132,8 +65,6 @@ export function AdminStatusClient() {
   const [status, setStatus] = useState<StatusResponse>(emptyStatus());
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(config.issue);
-  const [callbackMessage, setCallbackMessage] = useState<string | null>(null);
-  const [callbackError, setCallbackError] = useState<string | null>(null);
 
   async function loadStatus(nextSession: Session | null) {
     if (!nextSession) {
@@ -192,73 +123,17 @@ export function AdminStatusClient() {
 
     let mounted = true;
 
-    const refreshSessionAndStatus = async () => {
-      const { data } = await supabase.auth.getSession();
-
-      if (!mounted) {
-        return null;
-      }
-
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
       setSession(data.session);
       setEmail(data.session?.user.email || "");
-      await loadStatus(data.session);
-
-      return data.session;
-    };
-
-    const processAuthCallback = async () => {
-      const callback = readAuthCallbackInfo();
-
-      if (!callback?.hasCallbackData) {
-        await refreshSessionAndStatus();
-        return;
-      }
-
-      setLoading(true);
-      setCallbackError(callback.error || callback.errorCode || callback.errorDescription ? formatCallbackError(callback) : null);
-      setCallbackMessage("Login-link behandles...");
-
-      let exchangeError: AuthError | null = null;
-
-      if (callback.code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(callback.code);
-        exchangeError = error;
-      } else if (callback.accessToken && callback.refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: callback.accessToken,
-          refresh_token: callback.refreshToken
-        });
-        exchangeError = error;
-      }
-
-      clearAuthCallbackUrl();
-
-      if (exchangeError) {
-        const errorMessage = formatExchangeError(exchangeError);
-        setCallbackError(errorMessage);
-        setCallbackMessage(null);
-      }
-
-      const latestSession = await refreshSessionAndStatus();
-
-      if (latestSession) {
-        setCallbackMessage("Login lykkedes");
-        setCallbackError(null);
-      } else if (!exchangeError && !callback.error && !callback.errorCode && !callback.errorDescription) {
-        setCallbackError("Login fejlede: Session kunne ikke oprettes.");
-        setCallbackMessage(null);
-      }
-    };
-
-    void processAuthCallback();
+      void loadStatus(data.session);
+    });
 
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!mounted) {
-        return;
-      }
-
+      if (!mounted) return;
       setSession(nextSession);
       setEmail(nextSession?.user.email || "");
       void loadStatus(nextSession);
@@ -286,13 +161,11 @@ export function AdminStatusClient() {
     }
 
     setMessage(null);
-    setCallbackMessage(null);
-    setCallbackError(null);
 
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmedEmail,
       options: {
-        emailRedirectTo: window.location.origin + "/admin/status"
+        emailRedirectTo: window.location.origin + "/auth/callback?next=/admin/status"
       }
     });
 
@@ -304,8 +177,6 @@ export function AdminStatusClient() {
 
     const { error } = await supabase.auth.signOut();
     setMessage(error ? error.message : "Du er logget ud.");
-    setCallbackMessage(null);
-    setCallbackError(null);
     setSession(null);
     setStatus(emptyStatus());
   }
@@ -313,7 +184,8 @@ export function AdminStatusClient() {
   return (
     <div className="admin-status-stack">
       <section className="info-box">
-        Kompetence-redigering er stadig ikke aktiveret i UI. Denne side viser kun loginstatus og rollegrundlag.
+        Kompetence-redigering er kun aktiv for brugere med owner/admin/editor rolle. Denne side viser loginstatus og
+        rollegrundlag.
       </section>
 
       <section className="content-section">
@@ -343,8 +215,6 @@ export function AdminStatusClient() {
             <button type="submit">Send login-link</button>
           </form>
         )}
-        {callbackMessage ? <p className="status-message">{callbackMessage}</p> : null}
-        {callbackError ? <p className="notice">{callbackError}</p> : null}
         {message ? <p className="status-message">{message}</p> : null}
       </section>
 

@@ -54,15 +54,15 @@ Login sker med Supabase magic link via `signInWithOtp`. Der hardcodes ingen pass
 
 ```ts
 options: {
-  emailRedirectTo: window.location.origin + "/admin/status"
+  emailRedirectTo: window.location.origin + "/auth/callback?next=/admin/status"
 }
 ```
 
-Hvis magic-linket lander på forsiden med auth-hash, sender en lille root-fallback brugeren videre til `/admin/status` med samme hash, så callback kan behandles ét sted.
+Hvis magic-linket lander på forsiden med auth-hash, sender en lille root-fallback brugeren videre til `/auth/callback?next=/admin/status` med samme hash, så callback kan behandles ét sted.
 
 Når brugeren er logget ind, kalder siden `GET /api/admin/status` med `Authorization: Bearer <access_token>`. Route handleren kører server-side, validerer tokenet, slår organization `heg` op og returnerer aktiv rolle i `organization_members`. `owner`, `admin` og `editor` vises som write-adgang; `viewer` eller manglende rolle vises som ingen write-adgang.
 
-Siden er kun status og login/logout. UI-write til `/admin/kompetencer` må først aktiveres, når login, rollecheck og audit-flow er testet end-to-end.
+Siden er kun status og login/logout. UI-write på `/admin/kompetencer` afhænger fortsat af sessionen og rollechecket fra `/api/admin/status`.
 
 ## Write flow for lærerkompetencer
 
@@ -146,10 +146,11 @@ Route handleren er nu koblet til UI for owner/admin/editor via `/admin/kompetenc
 
 ## Magic-link callback
 
-`/admin/status` håndterer nu Supabase magic-link callback i browseren ved at:
+`/auth/callback` håndterer nu Supabase magic-link callback i browseren ved at:
 
-- bruge `emailRedirectTo` til `/admin/status`
+- bruge `emailRedirectTo` til `/auth/callback?next=/admin/status`
 - udveksle `code` via `exchangeCodeForSession`
 - understøtte session-data i URL-hash med `setSession`
 - rydde callback-parametre fra URL med `history.replaceState`
-- hente session igen med `supabase.auth.getSession()` før status kaldes
+- hente session igen med `supabase.auth.getSession()`
+- videresende til `next`, normalt `/admin/status`, når sessionen er oprettet

@@ -17,7 +17,7 @@ export function AuthMagicLinkRedirect() {
       return;
     }
 
-    window.location.replace(`/admin/status${window.location.hash}`);
+    window.location.replace(`/auth/callback?next=${encodeURIComponent("/admin/status")}${window.location.hash}`);
   }, []);
 
   return null;
