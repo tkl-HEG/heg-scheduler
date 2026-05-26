@@ -2,6 +2,7 @@ import { PageHeader } from "../components/PageHeader";
 import { StatusMessage } from "../components/StatusMessage";
 import { getDashboardData } from "../lib/data";
 import { formatCount } from "../lib/format";
+import { AuthMagicLinkRedirect } from "./AuthMagicLinkRedirect";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export default async function DashboardPage() {
 
   return (
     <>
+      <AuthMagicLinkRedirect />
       <PageHeader title="Dashboard" />
       <StatusMessage issues={issues} />
       <section className="metric-grid">
