@@ -46,6 +46,19 @@ function isPseudoResource(teacher: Row) {
   );
 }
 
+function teacherLikeFromStatusRow(row: Row): Row {
+  return {
+    id: row.teacher_id,
+    school_id: null,
+    initials: row.initials,
+    display_name: row.display_name ?? null,
+    metadata: {
+      is_pseudo_resource: Boolean(row.is_pseudo_resource),
+      source: "v_teacher_workload_status"
+    }
+  };
+}
+
 function remainingHours({
   allocatedHours,
   assignedHoursKnown,
@@ -128,10 +141,13 @@ export async function getWorkloadOverviewData() {
       .filter((row) => row.workload_year_id === activeYearId && isUuid(row.teacher_id))
       .map((row) => [row.teacher_id, row])
   );
-  const sourceTeachers =
+  const teachersForActiveSchool =
     activeSchoolId && activeYearId
       ? teachers.data.filter((teacher) => teacher.school_id === activeSchoolId && isUuid(teacher.id))
       : [];
+  const sourceTeachers = teachersForActiveSchool.length
+    ? teachersForActiveSchool
+    : activeStatusRows.filter((row) => isUuid(row.teacher_id)).map(teacherLikeFromStatusRow);
 
   const statusRows = sourceTeachers.map((teacher): WorkloadStatusRow => {
     const statusRow = statusByTeacherId.get(teacher.id) || statusByInitials.get(normalizeInitials(teacher.initials));
