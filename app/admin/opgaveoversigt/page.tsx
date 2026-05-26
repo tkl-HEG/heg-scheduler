@@ -7,7 +7,7 @@ import { AdminWorkloadClient } from "./AdminWorkloadClient";
 export const dynamic = "force-dynamic";
 
 export default async function AdminWorkloadPage() {
-  const { activeYear, rows, issues } = await getWorkloadOverviewData();
+  const { activeYear, rows, debug, issues } = await getWorkloadOverviewData();
 
   return (
     <>
@@ -41,7 +41,7 @@ export default async function AdminWorkloadPage() {
         </dl>
       </section>
 
-      <AdminWorkloadClient rows={rows} />
+      <AdminWorkloadClient debug={debug} rows={rows} />
     </>
   );
 }

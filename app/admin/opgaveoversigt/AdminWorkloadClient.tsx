@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { asText } from "../../../lib/format";
 import { createBrowserSupabaseClient, getSupabaseBrowserConfig } from "../../../lib/supabaseBrowser";
-import type { WorkloadStatusRow } from "../../../lib/workloadData";
+import type { WorkloadDebugInfo, WorkloadStatusRow } from "../../../lib/workloadData";
 
 type AdminStatusResponse = {
   success: boolean;
@@ -38,6 +38,7 @@ type ApiResult =
 
 type Props = {
   rows: WorkloadStatusRow[];
+  debug?: WorkloadDebugInfo;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -109,12 +110,11 @@ function isUuid(value: string | null | undefined) {
 }
 
 function rowIdentityIssue(row: WorkloadStatusRow) {
-  if (!isUuid(row.teacher_id)) return "Mangler gyldigt teacher_id.";
-  if (!isUuid(row.workload_year_id)) return "Mangler gyldigt workload_year_id.";
+  if (!isUuid(row.teacher_id) || !isUuid(row.workload_year_id)) return "Kan ikke gemmes: mangler UUID";
   return null;
 }
 
-export function AdminWorkloadClient({ rows }: Props) {
+export function AdminWorkloadClient({ rows, debug }: Props) {
   const router = useRouter();
   const config = getSupabaseBrowserConfig();
   const supabase = createBrowserSupabaseClient();
@@ -316,6 +316,18 @@ export function AdminWorkloadClient({ rows }: Props) {
 
       <section className="content-section">
         <h2>Lærer-årstimer</h2>
+        {!localRows.length && debug ? (
+          <div className="notice">
+            <strong>Debug</strong>
+            <ul>
+              <li>Aktivt workload year fundet: {debug.active_workload_year_found ? "ja" : "nej"}</li>
+              <li>Rows fra v_teacher_workload_status: {debug.view_rows}</li>
+              <li>Rows fra v_teacher_workload_status for aktivt år: {debug.active_view_rows}</li>
+              <li>Teachers: {debug.teachers}</li>
+              <li>Allocations: {debug.allocations}</li>
+            </ul>
+          </div>
+        ) : null}
         <div className="table-wrap">
           <table>
             <thead>

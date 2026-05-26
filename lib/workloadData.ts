@@ -2,7 +2,7 @@ import { readRows } from "./supabase";
 
 type Row = Record<string, any>;
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type WorkloadStatusRow = {
   workload_year_id: string;
@@ -16,6 +16,14 @@ export type WorkloadStatusRow = {
   remaining_hours: number | null;
   status: string;
   is_pseudo_resource: boolean;
+};
+
+export type WorkloadDebugInfo = {
+  active_workload_year_found: boolean;
+  view_rows: number;
+  active_view_rows: number;
+  teachers: number;
+  allocations: number;
 };
 
 function issuesFrom(results: { issue: string | null }[]) {
@@ -32,31 +40,18 @@ function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_PATTERN.test(value);
 }
 
-function normalizeInitials(value: unknown) {
+function normalize(value: unknown) {
   return String(value || "")
     .trim()
     .toLocaleLowerCase("da-DK");
 }
 
-function isPseudoResource(teacher: Row) {
+function teacherIsPseudoResource(teacher: Row | undefined) {
   return Boolean(
-    teacher.metadata?.is_pseudo_teacher ||
-      teacher.metadata?.is_resource ||
-      teacher.metadata?.is_pseudo_resource
+    teacher?.metadata?.is_pseudo_teacher ||
+      teacher?.metadata?.is_resource ||
+      teacher?.metadata?.is_pseudo_resource
   );
-}
-
-function teacherLikeFromStatusRow(row: Row): Row {
-  return {
-    id: row.teacher_id,
-    school_id: null,
-    initials: row.initials,
-    display_name: row.display_name ?? null,
-    metadata: {
-      is_pseudo_resource: Boolean(row.is_pseudo_resource),
-      source: "v_teacher_workload_status"
-    }
-  };
 }
 
 function remainingHours({
@@ -78,13 +73,16 @@ function workloadStatus({
   allocatedHours,
   assignedHoursKnown,
   assignedHoursMissing,
-  isPseudo
+  isPseudo,
+  viewStatus
 }: {
   allocatedHours: number | null;
   assignedHoursKnown: number;
   assignedHoursMissing: number;
   isPseudo: boolean;
+  viewStatus: string | null | undefined;
 }) {
+  if (viewStatus) return viewStatus;
   if (isPseudo) return "pseudo_resource_not_counted";
   if (allocatedHours === null) return "missing_allocation";
   if (assignedHoursMissing > 0) return "missing_assignment_hours";
@@ -94,6 +92,26 @@ function workloadStatus({
   if (remaining < 0) return "over_allocated";
   if (remaining > 0) return "under_allocated";
   return "on_target";
+}
+
+function findTeacherForStatusRow(row: Row, teachers: Row[]) {
+  if (isUuid(row.teacher_id)) {
+    const byId = teachers.find((teacher) => teacher.id === row.teacher_id);
+    if (byId) return byId;
+  }
+
+  const initials = normalize(row.initials);
+  if (initials) {
+    const byInitials = teachers.find((teacher) => normalize(teacher.initials) === initials);
+    if (byInitials) return byInitials;
+  }
+
+  const displayName = normalize(row.display_name);
+  if (displayName) {
+    return teachers.find((teacher) => normalize(teacher.display_name) === displayName) || null;
+  }
+
+  return null;
 }
 
 export async function getWorkloadOverviewData() {
@@ -128,41 +146,33 @@ export async function getWorkloadOverviewData() {
   const activeYear = years.data.find((year) => year.is_active) || years.data[0] || null;
   const activeYearId = activeYear?.id || null;
   const activeLabel = activeYear?.label || null;
-  const activeSchoolId = activeYear?.school_id || null;
   const activePeriods = periods.data.filter((period) => period.workload_year_id === activeYearId);
 
   const activeStatusRows = status.data.filter(
     (row) => !activeYearId || row.workload_year_id === activeYearId || row.workload_year_label === activeLabel
   );
-  const statusByTeacherId = new Map(activeStatusRows.filter((row) => isUuid(row.teacher_id)).map((row) => [row.teacher_id, row]));
-  const statusByInitials = new Map(activeStatusRows.map((row) => [normalizeInitials(row.initials), row]));
+  const viewRows = activeStatusRows.length ? activeStatusRows : status.data;
   const allocationByTeacherId = new Map(
     allocations.data
       .filter((row) => row.workload_year_id === activeYearId && isUuid(row.teacher_id))
       .map((row) => [row.teacher_id, row])
   );
-  const teachersForActiveSchool =
-    activeSchoolId && activeYearId
-      ? teachers.data.filter((teacher) => teacher.school_id === activeSchoolId && isUuid(teacher.id))
-      : [];
-  const sourceTeachers = teachersForActiveSchool.length
-    ? teachersForActiveSchool
-    : activeStatusRows.filter((row) => isUuid(row.teacher_id)).map(teacherLikeFromStatusRow);
 
-  const statusRows = sourceTeachers.map((teacher): WorkloadStatusRow => {
-    const statusRow = statusByTeacherId.get(teacher.id) || statusByInitials.get(normalizeInitials(teacher.initials));
-    const allocation = allocationByTeacherId.get(teacher.id);
-    const allocatedHours = toNumber(allocation?.allocated_hours ?? statusRow?.allocated_hours);
-    const assignedHoursKnown = toNumber(statusRow?.assigned_hours_known) ?? 0;
-    const assignedHoursMissing = toNumber(statusRow?.assigned_hours_missing) ?? 0;
-    const pseudoResource = Boolean(statusRow?.is_pseudo_resource) || isPseudoResource(teacher);
+  const statusRows = viewRows.map((statusRow): WorkloadStatusRow => {
+    const teacher = findTeacherForStatusRow(statusRow, teachers.data);
+    const teacherId = isUuid(teacher?.id) ? teacher.id : isUuid(statusRow.teacher_id) ? statusRow.teacher_id : "";
+    const allocation = teacherId ? allocationByTeacherId.get(teacherId) : null;
+    const allocatedHours = toNumber(allocation?.allocated_hours ?? statusRow.allocated_hours);
+    const assignedHoursKnown = toNumber(statusRow.assigned_hours_known) ?? 0;
+    const assignedHoursMissing = toNumber(statusRow.assigned_hours_missing) ?? 0;
+    const pseudoResource = Boolean(statusRow.is_pseudo_resource) || teacherIsPseudoResource(teacher || undefined);
 
     return {
-      workload_year_id: activeYearId || "",
-      workload_year_label: activeLabel || "",
-      teacher_id: teacher.id,
-      initials: teacher.initials,
-      display_name: teacher.display_name ?? null,
+      workload_year_id: activeYearId || (isUuid(statusRow.workload_year_id) ? statusRow.workload_year_id : ""),
+      workload_year_label: activeLabel || statusRow.workload_year_label || "",
+      teacher_id: teacherId,
+      initials: statusRow.initials || teacher?.initials || "",
+      display_name: statusRow.display_name ?? teacher?.display_name ?? null,
       allocated_hours: allocatedHours,
       assigned_hours_known: assignedHoursKnown,
       assigned_hours_missing: assignedHoursMissing,
@@ -176,7 +186,8 @@ export async function getWorkloadOverviewData() {
         allocatedHours,
         assignedHoursKnown,
         assignedHoursMissing,
-        isPseudo: pseudoResource
+        isPseudo: pseudoResource,
+        viewStatus: statusRow.status
       }),
       is_pseudo_resource: pseudoResource
     };
@@ -186,6 +197,13 @@ export async function getWorkloadOverviewData() {
     activeYear,
     periods: activePeriods,
     rows: statusRows,
+    debug: {
+      active_workload_year_found: Boolean(activeYear),
+      view_rows: status.data.length,
+      active_view_rows: activeStatusRows.length,
+      teachers: teachers.data.length,
+      allocations: allocations.data.length
+    } satisfies WorkloadDebugInfo,
     issues: issuesFrom([years, periods, status, teachers, allocations])
   };
 }
