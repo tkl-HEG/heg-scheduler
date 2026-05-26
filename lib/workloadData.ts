@@ -36,8 +36,9 @@ function toNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
-function isUuid(value: unknown): value is string {
-  return typeof value === "string" && UUID_PATTERN.test(value);
+function uuidFrom(value: unknown) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return UUID_PATTERN.test(trimmed) ? trimmed : null;
 }
 
 function normalize(value: unknown) {
@@ -95,8 +96,10 @@ function workloadStatus({
 }
 
 function findTeacherForStatusRow(row: Row, teachers: Row[]) {
-  if (isUuid(row.teacher_id)) {
-    const byId = teachers.find((teacher) => teacher.id === row.teacher_id);
+  const statusTeacherId = uuidFrom(row.teacher_id);
+
+  if (statusTeacherId) {
+    const byId = teachers.find((teacher) => uuidFrom(teacher.id) === statusTeacherId);
     if (byId) return byId;
   }
 
@@ -145,22 +148,26 @@ export async function getWorkloadOverviewData() {
 
   const activeYear = years.data.find((year) => year.is_active) || years.data[0] || null;
   const activeYearId = activeYear?.id || null;
+  const activeWorkloadYearId = uuidFrom(activeYearId);
   const activeLabel = activeYear?.label || null;
   const activePeriods = periods.data.filter((period) => period.workload_year_id === activeYearId);
 
   const activeStatusRows = status.data.filter(
-    (row) => !activeYearId || row.workload_year_id === activeYearId || row.workload_year_label === activeLabel
+    (row) =>
+      !activeWorkloadYearId ||
+      uuidFrom(row.workload_year_id) === activeWorkloadYearId ||
+      row.workload_year_label === activeLabel
   );
   const viewRows = activeStatusRows.length ? activeStatusRows : status.data;
   const allocationByTeacherId = new Map(
     allocations.data
-      .filter((row) => row.workload_year_id === activeYearId && isUuid(row.teacher_id))
-      .map((row) => [row.teacher_id, row])
+      .filter((row) => uuidFrom(row.workload_year_id) === activeWorkloadYearId && uuidFrom(row.teacher_id))
+      .map((row) => [uuidFrom(row.teacher_id)!, row])
   );
 
   const statusRows = viewRows.map((statusRow): WorkloadStatusRow => {
     const teacher = findTeacherForStatusRow(statusRow, teachers.data);
-    const teacherId = isUuid(teacher?.id) ? teacher.id : isUuid(statusRow.teacher_id) ? statusRow.teacher_id : "";
+    const teacherId = uuidFrom(teacher?.id) || uuidFrom(statusRow.teacher_id) || "";
     const allocation = teacherId ? allocationByTeacherId.get(teacherId) : null;
     const allocatedHours = toNumber(allocation?.allocated_hours ?? statusRow.allocated_hours);
     const assignedHoursKnown = toNumber(statusRow.assigned_hours_known) ?? 0;
@@ -168,7 +175,7 @@ export async function getWorkloadOverviewData() {
     const pseudoResource = Boolean(statusRow.is_pseudo_resource) || teacherIsPseudoResource(teacher || undefined);
 
     return {
-      workload_year_id: activeYearId || (isUuid(statusRow.workload_year_id) ? statusRow.workload_year_id : ""),
+      workload_year_id: activeWorkloadYearId || uuidFrom(statusRow.workload_year_id) || "",
       workload_year_label: activeLabel || statusRow.workload_year_label || "",
       teacher_id: teacherId,
       initials: statusRow.initials || teacher?.initials || "",

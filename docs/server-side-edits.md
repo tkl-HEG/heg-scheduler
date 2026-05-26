@@ -49,6 +49,8 @@ Samme sikkerhedsmodel bruges til admin-redigering af lærer-årstimer på `/admi
 
 Admin workload-rækker vises primært fra `v_teacher_workload_status`. `teachers`, `workload_years` og `teacher_workload_allocations` bruges til at berige rækkerne med write-UUID’er og eksisterende `allocated_hours`. Rækker uden gyldigt `teacher_id` eller `workload_year_id` vises stadig, men Gem er disabled for den række.
 
+Gem på `/admin/opgaveoversigt` aktiveres kun for rækker med gyldige UUID’er i `teacher_id` og `workload_year_id`, write-adgang og et gyldigt timetal. Klienten sender kun `teacher_id`, `workload_year_id` og `allocated_hours` til server-routen og falder aldrig tilbage til initialer eller navn som id. `Rest` beregnes lokalt fra den aktuelle inputværdi som `allocated_hours - assigned_hours_known - assigned_hours_missing`, så tallet opdateres med det samme og efter gem.
+
 Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
 
 - `NEXT_PUBLIC_SUPABASE_URL`

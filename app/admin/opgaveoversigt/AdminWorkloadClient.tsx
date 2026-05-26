@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { asText } from "../../../lib/format";
 import { createBrowserSupabaseClient, getSupabaseBrowserConfig } from "../../../lib/supabaseBrowser";
@@ -105,17 +104,17 @@ function parseHours(value: string) {
   return Math.round(parsed * 100) / 100;
 }
 
-function isUuid(value: string | null | undefined) {
-  return typeof value === "string" && UUID_PATTERN.test(value);
+function normalizeUuid(value: string | null | undefined) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return UUID_PATTERN.test(trimmed) ? trimmed : null;
 }
 
 function rowIdentityIssue(row: WorkloadStatusRow) {
-  if (!isUuid(row.teacher_id) || !isUuid(row.workload_year_id)) return "Kan ikke gemmes: mangler UUID";
+  if (!normalizeUuid(row.teacher_id) || !normalizeUuid(row.workload_year_id)) return "Kan ikke gemmes: mangler UUID";
   return null;
 }
 
 export function AdminWorkloadClient({ rows, debug }: Props) {
-  const router = useRouter();
   const config = getSupabaseBrowserConfig();
   const supabase = createBrowserSupabaseClient();
   const [session, setSession] = useState<Session | null>(null);
@@ -220,15 +219,25 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
 
     const draftValue = draftHours[row.teacher_id] ?? inputValue(row.allocated_hours);
     const allocatedHours = parseHours(draftValue);
-    const identityIssue = rowIdentityIssue(row);
+    const teacherId = normalizeUuid(row.teacher_id);
+    const workloadYearId = normalizeUuid(row.workload_year_id);
+    const identityIssue = !teacherId || !workloadYearId ? "Kan ikke gemmes: mangler UUID" : null;
 
     if (identityIssue) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("Workload row cannot be saved without UUIDs", {
+          initials: row.initials,
+          teacher_id: row.teacher_id,
+          workload_year_id: row.workload_year_id
+        });
+      }
       setNotice(null);
       setError(identityIssue);
       return;
     }
 
     if (allocatedHours === null) {
+      setNotice(null);
       setError("Årstimer skal være et tal mellem 0 og 999999.99.");
       return;
     }
@@ -261,8 +270,8 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
           Authorization: `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          teacher_id: row.teacher_id,
-          workload_year_id: row.workload_year_id,
+          teacher_id: teacherId,
+          workload_year_id: workloadYearId,
           allocated_hours: allocatedHours
         })
       });
@@ -276,14 +285,12 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
         return;
       }
 
-      setDraftHours((current) => {
-        const next = { ...current };
-        delete next[row.teacher_id];
-        return next;
-      });
+      setDraftHours((current) => ({
+        ...current,
+        [row.teacher_id]: inputValue(allocatedHours)
+      }));
       setNotice(`Årstimer gemt for ${row.initials}.`);
       setLastSavedTeacherId(row.teacher_id);
-      router.refresh();
     } catch (mutationError) {
       setLocalRows(previousRows);
       setError(mutationError instanceof Error ? mutationError.message : String(mutationError));
@@ -348,8 +355,12 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
                 localRows.map((row) => {
                   const isSaving = savingTeacherId === row.teacher_id;
                   const identityIssue = rowIdentityIssue(row);
-                  const canSaveRow = canWrite && !identityIssue;
                   const draftValue = draftHours[row.teacher_id] ?? inputValue(row.allocated_hours);
+                  const currentAllocatedHours = parseHours(draftValue);
+                  const canEditRow = canWrite && !identityIssue;
+                  const canSaveRow = canEditRow && currentAllocatedHours !== null;
+                  const displayedRemainingHours = remainingFor(row, currentAllocatedHours);
+                  const displayedStatus = statusFor(row, currentAllocatedHours);
 
                   return (
                     <tr key={`${row.workload_year_id}:${row.teacher_id}`}>
@@ -361,7 +372,7 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
                       <td>
                         <input
                           className="workload-hours-input"
-                          disabled={!canSaveRow || isSaving}
+                          disabled={!canEditRow || isSaving}
                           inputMode="decimal"
                           min="0"
                           name={`allocated_hours_${row.teacher_id}`}
@@ -371,16 +382,16 @@ export function AdminWorkloadClient({ rows, debug }: Props) {
                               [row.teacher_id]: event.target.value
                             }))
                           }
-                          readOnly={!canSaveRow}
+                          readOnly={!canEditRow}
                           step="0.25"
-                          type="number"
+                          type="text"
                           value={draftValue}
                         />
                       </td>
                       <td>{hours(row.assigned_hours_known)}</td>
                       <td>{row.assigned_hours_missing}</td>
-                      <td>{row.is_pseudo_resource ? "-" : hours(row.remaining_hours)}</td>
-                      <td>{statusBadge(row.status, row.is_pseudo_resource)}</td>
+                      <td>{row.is_pseudo_resource ? "-" : hours(displayedRemainingHours)}</td>
+                      <td>{statusBadge(displayedStatus, row.is_pseudo_resource)}</td>
                       <td>
                         <button
                           className="button-secondary"
