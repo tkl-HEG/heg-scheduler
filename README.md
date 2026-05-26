@@ -106,7 +106,7 @@ npm run dev
 
 Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kalendere` og `/staa-review`.
 
-`/admin/kompetencer` er en read-only preview af lærerkompetencer med disabled checkboxes. Senere ændringer skal ske server-side med rollecheck, og `data_change_log` bruges til audit.
+`/admin/kompetencer` er en guarded adminside for lærerkompetencer. Email-kode-login via Resend/Supabase virker, og `owner`, `admin` og `editor` kan redigere kompetencer; add/remove skrives til `data_change_log` som audit. Ikke-loggede brugere og `viewer` ser siden read-only.
 
 Se `docs/server-side-edits.md` for den planlagte server-only write-model og Vercel environment variables.
 

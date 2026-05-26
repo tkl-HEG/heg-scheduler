@@ -43,6 +43,8 @@ Anon får ikke insert/update/delete på `organization_members`, og `data_change_
 
 `/admin/status` er login- og rollekontrolsiden. Den viser stadig status, men kompetence-redigering afhænger nu af write-adgang i `organization_members`.
 
+Status efter test: email-kode-login via Resend/Supabase virker. Brugere med `owner`, `admin` eller `editor` kan redigere lærerkompetencer, og add/remove skriver audit-rækker i `data_change_log`. Ikke-loggede brugere og `viewer` forbliver read-only.
+
 Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
 
 - `NEXT_PUBLIC_SUPABASE_URL`

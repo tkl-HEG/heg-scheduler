@@ -309,7 +309,7 @@ export function AdminStatusClient() {
                     inputMode="numeric"
                     name="token"
                     onChange={(event) => setToken(event.target.value)}
-                    placeholder="6-cifret kode"
+                    placeholder="Indtast koden fra mailen"
                     type="text"
                     value={token}
                   />
