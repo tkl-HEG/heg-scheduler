@@ -40,6 +40,8 @@ type Props = {
   rows: WorkloadStatusRow[];
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function emptyStatus(): AdminStatusResponse {
   return {
     success: true,
@@ -65,7 +67,7 @@ function statusFor(row: WorkloadStatusRow, allocatedHours: number | null) {
   if (allocatedHours === null) return "missing_allocation";
   if (row.assigned_hours_missing > 0) return "missing_assignment_hours";
 
-  const remaining = allocatedHours - row.assigned_hours_known;
+  const remaining = allocatedHours - row.assigned_hours_known - row.assigned_hours_missing;
 
   if (remaining < 0) return "over_allocated";
   if (remaining > 0) return "under_allocated";
@@ -74,7 +76,7 @@ function statusFor(row: WorkloadStatusRow, allocatedHours: number | null) {
 
 function remainingFor(row: WorkloadStatusRow, allocatedHours: number | null) {
   if (row.is_pseudo_resource || allocatedHours === null) return null;
-  return allocatedHours - row.assigned_hours_known;
+  return allocatedHours - row.assigned_hours_known - row.assigned_hours_missing;
 }
 
 function statusBadge(status: string, isPseudoResource: boolean) {
@@ -102,6 +104,16 @@ function parseHours(value: string) {
   return Math.round(parsed * 100) / 100;
 }
 
+function isUuid(value: string | null | undefined) {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+function rowIdentityIssue(row: WorkloadStatusRow) {
+  if (!isUuid(row.teacher_id)) return "Mangler gyldigt teacher_id.";
+  if (!isUuid(row.workload_year_id)) return "Mangler gyldigt workload_year_id.";
+  return null;
+}
+
 export function AdminWorkloadClient({ rows }: Props) {
   const router = useRouter();
   const config = getSupabaseBrowserConfig();
@@ -112,6 +124,7 @@ export function AdminWorkloadClient({ rows }: Props) {
   const [localRows, setLocalRows] = useState<WorkloadStatusRow[]>(rows);
   const [draftHours, setDraftHours] = useState<Record<string, string>>({});
   const [savingTeacherId, setSavingTeacherId] = useState<string | null>(null);
+  const [lastSavedTeacherId, setLastSavedTeacherId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(config.issue);
 
@@ -207,6 +220,13 @@ export function AdminWorkloadClient({ rows }: Props) {
 
     const draftValue = draftHours[row.teacher_id] ?? inputValue(row.allocated_hours);
     const allocatedHours = parseHours(draftValue);
+    const identityIssue = rowIdentityIssue(row);
+
+    if (identityIssue) {
+      setNotice(null);
+      setError(identityIssue);
+      return;
+    }
 
     if (allocatedHours === null) {
       setError("Årstimer skal være et tal mellem 0 og 999999.99.");
@@ -214,6 +234,7 @@ export function AdminWorkloadClient({ rows }: Props) {
     }
 
     setSavingTeacherId(row.teacher_id);
+    setLastSavedTeacherId(null);
     setNotice(null);
     setError(null);
 
@@ -261,6 +282,7 @@ export function AdminWorkloadClient({ rows }: Props) {
         return next;
       });
       setNotice(`Årstimer gemt for ${row.initials}.`);
+      setLastSavedTeacherId(row.teacher_id);
       router.refresh();
     } catch (mutationError) {
       setLocalRows(previousRows);
@@ -313,6 +335,8 @@ export function AdminWorkloadClient({ rows }: Props) {
               {localRows.length ? (
                 localRows.map((row) => {
                   const isSaving = savingTeacherId === row.teacher_id;
+                  const identityIssue = rowIdentityIssue(row);
+                  const canSaveRow = canWrite && !identityIssue;
                   const draftValue = draftHours[row.teacher_id] ?? inputValue(row.allocated_hours);
 
                   return (
@@ -325,7 +349,7 @@ export function AdminWorkloadClient({ rows }: Props) {
                       <td>
                         <input
                           className="workload-hours-input"
-                          disabled={!canWrite || isSaving}
+                          disabled={!canSaveRow || isSaving}
                           inputMode="decimal"
                           min="0"
                           name={`allocated_hours_${row.teacher_id}`}
@@ -335,7 +359,7 @@ export function AdminWorkloadClient({ rows }: Props) {
                               [row.teacher_id]: event.target.value
                             }))
                           }
-                          readOnly={!canWrite}
+                          readOnly={!canSaveRow}
                           step="0.25"
                           type="number"
                           value={draftValue}
@@ -348,12 +372,15 @@ export function AdminWorkloadClient({ rows }: Props) {
                       <td>
                         <button
                           className="button-secondary"
-                          disabled={!canWrite || isSaving}
+                          disabled={!canSaveRow || isSaving}
                           onClick={() => void saveAllocatedHours(row)}
                           type="button"
+                          title={identityIssue || undefined}
                         >
                           {isSaving ? "Gemmer..." : "Gem"}
                         </button>
+                        {identityIssue ? <small>{identityIssue}</small> : null}
+                        {lastSavedTeacherId === row.teacher_id && !isSaving ? <small>Sidst gemt</small> : null}
                       </td>
                     </tr>
                   );

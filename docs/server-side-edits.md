@@ -47,6 +47,8 @@ Status efter test: email-kode-login via Resend/Supabase virker. Brugere med `own
 
 Samme sikkerhedsmodel bruges til admin-redigering af lærer-årstimer på `/admin/opgaveoversigt`: owner/admin/editor kan ændre `allocated_hours`, mens ikke-loggede brugere og `viewer` ser read-only fallback. Ændringer sendes til `PATCH /api/admin/teacher-workload-allocations`, som kræver bearer token, rollechecker server-side og skriver before/after audit i `data_change_log`.
 
+Admin workload-rækker bygges fra de rigtige UUID’er i `teachers.id` og `workload_years.id`. `v_teacher_workload_status` bruges til status-tal, men UI-write sender altid `teacher_id`, `workload_year_id` og `allocated_hours` fra de underliggende tabeller.
+
 Browserdelen bruger `lib/supabaseBrowser.ts` med kun:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
