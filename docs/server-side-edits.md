@@ -59,6 +59,10 @@ Migration `019_hold_lifecycle.sql` tilføjer `is_active`, `archived_at`, `archiv
 
 Hold er stamdata. `/admin/hold` må ikke oprette campus-specifikke fag eller fagudbud pr. hold. Den nuværende datamodel har `subject_offerings.class_group_id`, altså ét hold pr. fagudbud. Sammenlæsning mellem fx HGF2EUD og HGF2EUX i samme fag skal derfor senere håndteres i en udvidet fagudbud/undervisningsgruppe-model, hvor ét fagudbud kan kobles til flere hold.
 
+Migration `020_subject_offering_class_groups.sql` opretter fundamentet for den model med join-tabellen `subject_offering_class_groups`. Tabellen kobler flere `class_groups` til samme `subject_offering`, mens `subject_offerings.class_group_id` bevares som legacy/primært hold, så eksisterende views, imports og read-only sider ikke knækker. Eksisterende `subject_offerings` backfilles til join-tabellen med `member_role = primary`, `sort_order = 1` og metadata om at rækken kommer fra `subject_offerings.class_group_id`.
+
+Der er stadig ingen UI-write til fagudbud/undervisningsgrupper. Næste fase bør være en server-side `/admin/fagudbud` eller `/admin/undervisningsgrupper` model, som skriver medlemsændringer kontrolleret, audit-logger dem og derefter opdaterer relevante read views for krav, status og planlægning.
+
 Admin workload-rækker vises primært fra `v_teacher_workload_status`. `teachers`, `workload_years` og `teacher_workload_allocations` bruges til at berige rækkerne med write-UUID’er og eksisterende `allocated_hours`. Rækker uden gyldigt `teacher_id` eller `workload_year_id` vises stadig, men Gem er disabled for den række.
 
 Gem på `/admin/opgaveoversigt` aktiveres kun for rækker med gyldige UUID’er i `teacher_id` og `workload_year_id`, write-adgang og et gyldigt timetal. Klienten sender kun `teacher_id`, `workload_year_id` og `allocated_hours` til server-routen og falder aldrig tilbage til initialer eller navn som id. `Rest` beregnes lokalt fra den aktuelle inputværdi som `allocated_hours - assigned_hours_known - assigned_hours_missing`, så tallet opdateres med det samme og efter gem.

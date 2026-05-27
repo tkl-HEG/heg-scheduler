@@ -116,6 +116,8 @@ Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kale
 
 `/admin/hold` redigerer hold-stamdata i `class_groups`: `owner`, `admin` og `editor` kan oprette, redigere, deaktivere og genaktivere hold via `/api/admin/holds`; ikke-loggede brugere og `viewer` er read-only. Migration `019_hold_lifecycle.sql` skal køres i Supabase for soft lifecycle på hold. Hold opretter ikke fag eller fagudbud. Sammenlæsning mellem flere hold skal senere håndteres i fagudbud/undervisningsgruppe-modellen, fordi `subject_offerings` aktuelt kun peger på én `class_group_id`.
 
+Migration `020_subject_offering_class_groups.sql` opretter `subject_offering_class_groups` som databasefundament for sammenlæsning: ét `subject_offering` kan kobles til flere `class_groups`. Eksisterende `subject_offerings.class_group_id` bevares midlertidigt som legacy/primært hold, og eksisterende fagudbud backfilles med én `primary` medlemsrække. Næste fase er en kontrolleret `/admin/fagudbud` eller `/admin/undervisningsgrupper` write-model.
+
 Se `docs/server-side-edits.md` for den planlagte server-only write-model og Vercel environment variables.
 
 Hvis Supabase RLS blokerer læsning med anon key, viser appen en fejlbesked på siden. Se `docs/app-dashboard.md` for anbefalede næste trin.
