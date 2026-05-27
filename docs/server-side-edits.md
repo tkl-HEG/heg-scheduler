@@ -53,6 +53,12 @@ Migration `018_course_subject_lifecycle.sql` tilføjer `is_active`, `archived_at
 
 Opret fag finder `school_id` robust: først fra `schools`, dernæst aktivt `workload_years.school_id`, og til sidst fra eksisterende `course_subjects.school_id`, hvis fagene kun peger på én skole. Det gør opret-flowet uafhængigt af om `schools` er læsbart for anon/read-only klienten.
 
+`/admin/hold` bruger samme model til `class_groups`: owner/admin/editor kan oprette hold, redigere stamfelter og deaktivere/genaktivere hold via `/api/admin/holds`. Route handleren kræver bearer token, finder skolens organisation, genbruger rollechecket og skriver `insert`/`update` audit-rækker i `data_change_log` med `table_name = class_groups`, `before_data` og `after_data`.
+
+Migration `019_hold_lifecycle.sql` tilføjer `is_active`, `archived_at`, `archived_by` og `archived_reason` til `class_groups`. Deaktivering er soft lifecycle og hard-deleter aldrig hold. Opret hold finder `school_id` robust på samme måde som `/admin/fag`: `schools`, aktivt `workload_years.school_id` og til sidst ensartet `class_groups.school_id`.
+
+Hold er stamdata. `/admin/hold` må ikke oprette campus-specifikke fag eller fagudbud pr. hold. Den nuværende datamodel har `subject_offerings.class_group_id`, altså ét hold pr. fagudbud. Sammenlæsning mellem fx HGF2EUD og HGF2EUX i samme fag skal derfor senere håndteres i en udvidet fagudbud/undervisningsgruppe-model, hvor ét fagudbud kan kobles til flere hold.
+
 Admin workload-rækker vises primært fra `v_teacher_workload_status`. `teachers`, `workload_years` og `teacher_workload_allocations` bruges til at berige rækkerne med write-UUID’er og eksisterende `allocated_hours`. Rækker uden gyldigt `teacher_id` eller `workload_year_id` vises stadig, men Gem er disabled for den række.
 
 Gem på `/admin/opgaveoversigt` aktiveres kun for rækker med gyldige UUID’er i `teacher_id` og `workload_year_id`, write-adgang og et gyldigt timetal. Klienten sender kun `teacher_id`, `workload_year_id` og `allocated_hours` til server-routen og falder aldrig tilbage til initialer eller navn som id. `Rest` beregnes lokalt fra den aktuelle inputværdi som `allocated_hours - assigned_hours_known - assigned_hours_missing`, så tallet opdateres med det samme og efter gem.
@@ -183,6 +189,7 @@ Route handleren er nu koblet til UI for owner/admin/editor via `/admin/kompetenc
 
 - Ingen write-knapper for viewer eller ikke-loggede brugere på `/admin/kompetencer`.
 - Ingen hard delete af fag på `/admin/fag`; deaktivering bruger `is_active=false` og arkivfelter fra migration 018.
+- Ingen hard delete af hold på `/admin/hold`; deaktivering bruger `is_active=false` og arkivfelter fra migration 019.
 - Ingen anon insert/update/delete policies.
 - Ingen service role key i client components.
 - Ingen ændringer til `lesson_bookings`.

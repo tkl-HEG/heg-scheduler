@@ -251,7 +251,8 @@ h3 {
 }
 
 .button-secondary:disabled,
-.admin-subject-form button:disabled {
+.admin-subject-form button:disabled,
+.admin-hold-form button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
@@ -526,19 +527,22 @@ small {
   color: var(--muted);
 }
 
-.admin-subject-client {
+.admin-subject-client,
+.admin-holds-client {
   display: grid;
   gap: 18px;
 }
 
-.admin-subject-form {
+.admin-subject-form,
+.admin-hold-form {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 12px;
   align-items: end;
 }
 
-.admin-subject-form label {
+.admin-subject-form label,
+.admin-hold-form label {
   display: grid;
   gap: 5px;
   color: var(--muted);
@@ -549,7 +553,10 @@ small {
 
 .admin-subject-form input,
 .admin-subject-form select,
-.subject-field-input {
+.admin-hold-form input,
+.admin-hold-form select,
+.subject-field-input,
+.hold-field-input {
   width: 100%;
   height: 36px;
   min-width: 150px;
@@ -564,12 +571,16 @@ small {
 
 .admin-subject-form input:disabled,
 .admin-subject-form select:disabled,
-.subject-field-input:disabled {
+.admin-hold-form input:disabled,
+.admin-hold-form select:disabled,
+.subject-field-input:disabled,
+.hold-field-input:disabled {
   background: var(--surface-muted);
   color: var(--muted);
 }
 
-.admin-subject-form button {
+.admin-subject-form button,
+.admin-hold-form button {
   height: 36px;
   padding: 0 16px;
   border: 1px solid var(--accent);
@@ -585,18 +596,33 @@ small {
   min-width: 1120px;
 }
 
+.admin-hold-table {
+  min-width: 1500px;
+}
+
 .subject-key-input {
   min-width: 180px;
 }
 
-.subject-actions {
+.hold-small-input {
+  margin-top: 6px;
+}
+
+.hold-number-input {
+  min-width: 80px;
+  max-width: 100px;
+}
+
+.subject-actions,
+.hold-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
-.inactive-subject-row td {
+.inactive-subject-row td,
+.inactive-hold-row td {
   background: #fbfcfa;
   color: var(--muted);
 }

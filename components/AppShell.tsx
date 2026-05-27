@@ -8,6 +8,7 @@ const navItems = [
   { href: "/admin/kompetencer", label: "Admin kompetencer" },
   { href: "/admin/opgaveoversigt", label: "Admin opgaveoversigt" },
   { href: "/admin/fag", label: "Admin fag" },
+  { href: "/admin/hold", label: "Admin hold" },
   { href: "/admin/status", label: "Admin status" },
   { href: "/opgaveoversigt", label: "Opgaveoversigt" },
   { href: "/hold", label: "Hold" },
