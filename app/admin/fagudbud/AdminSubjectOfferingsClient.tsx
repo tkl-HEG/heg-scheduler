@@ -85,7 +85,7 @@ type ApiResult =
       memberships: ApiMembership[];
       class_group_ids: string[];
     }
-  | { success: false; error: string };
+  | { success: false; error: string; duplicates?: SelectionWarning[]; requirement_mismatches?: SelectionWarning[] };
 
 type OfferingDraft = {
   course_subject_id: string;
@@ -110,6 +110,11 @@ type Props = {
   subjects: AdminSubjectOfferingSubjectOption[];
   classGroups: AdminSubjectOfferingClassGroupOption[];
   schema: AdminSubjectOfferingsSchemaInfo;
+};
+
+type SelectionWarning = {
+  class_group_id: string;
+  class_group_name: string;
 };
 
 function emptyStatus(): AdminStatusResponse {
@@ -275,6 +280,54 @@ function classGroupLabel(classGroup: AdminSubjectOfferingClassGroupOption) {
   return detail ? `${classGroup.name} (${detail})` : classGroup.name;
 }
 
+function selectedClassGroups(draft: OfferingDraft, classGroups: AdminSubjectOfferingClassGroupOption[]) {
+  return draft.class_group_ids
+    .map((classGroupId) => classGroups.find((classGroup) => classGroup.id === classGroupId))
+    .filter(Boolean) as AdminSubjectOfferingClassGroupOption[];
+}
+
+function requirementWarnings(draft: OfferingDraft, classGroups: AdminSubjectOfferingClassGroupOption[]): SelectionWarning[] {
+  if (!draft.course_subject_id) return [];
+
+  return selectedClassGroups(draft, classGroups)
+    .filter((classGroup) => !classGroup.required_course_subject_ids.includes(draft.course_subject_id))
+    .map((classGroup) => ({
+      class_group_id: classGroup.id,
+      class_group_name: classGroup.name
+    }));
+}
+
+function duplicateWarnings(
+  draft: OfferingDraft,
+  offerings: AdminSubjectOfferingRow[],
+  classGroups: AdminSubjectOfferingClassGroupOption[],
+  currentOfferingId?: string
+): SelectionWarning[] {
+  if (!draft.course_subject_id || !draft.class_group_ids.length) return [];
+
+  const selectedIds = new Set(draft.class_group_ids);
+  const duplicateIds = new Set<string>();
+
+  for (const offering of offerings) {
+    if (offering.id === currentOfferingId || !offering.is_active || offering.course_subject_id !== draft.course_subject_id) continue;
+
+    for (const classGroupId of offering.class_group_ids) {
+      if (selectedIds.has(classGroupId)) {
+        duplicateIds.add(classGroupId);
+      }
+    }
+  }
+
+  return [...duplicateIds].map((classGroupId) => ({
+    class_group_id: classGroupId,
+    class_group_name: classGroups.find((classGroup) => classGroup.id === classGroupId)?.name || classGroupId
+  }));
+}
+
+function warningNames(warnings: SelectionWarning[]) {
+  return warnings.map((warning) => warning.class_group_name).join(", ");
+}
+
 function mapApiOffering(
   body: Extract<ApiResult, { success: true }>,
   input: {
@@ -408,6 +461,8 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
   const [localOfferings, setLocalOfferings] = useState<AdminSubjectOfferingRow[]>(offerings);
   const [drafts, setDrafts] = useState<Record<string, OfferingDraft>>({});
   const [createDraft, setCreateDraft] = useState<CreateDraft>(() => initialCreateDraft(schools, subjects, classGroups));
+  const [createAllowsRequirementMismatch, setCreateAllowsRequirementMismatch] = useState(false);
+  const [rowRequirementOverrides, setRowRequirementOverrides] = useState<Record<string, boolean>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [lastSavedId, setLastSavedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -416,6 +471,7 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
   useEffect(() => {
     setLocalOfferings(offerings);
     setDrafts({});
+    setRowRequirementOverrides({});
     setLastSavedId(null);
   }, [offerings]);
 
@@ -516,7 +572,15 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
   );
   const createSubjects = subjects.filter((subject) => subject.school_id === createDraft.school_id);
   const createClassGroups = classGroups.filter((classGroup) => classGroup.school_id === createDraft.school_id);
-  const createReady = Boolean(createDraft.school_id && createDraft.course_subject_id && createDraft.class_group_ids.length);
+  const createRequirementWarnings = requirementWarnings(createDraft, createClassGroups);
+  const createDuplicateWarnings = duplicateWarnings(createDraft, localOfferings, createClassGroups);
+  const createReady = Boolean(
+    createDraft.school_id &&
+      createDraft.course_subject_id &&
+      createDraft.class_group_ids.length &&
+      !createDuplicateWarnings.length &&
+      (!createRequirementWarnings.length || createAllowsRequirementMismatch)
+  );
   const createSchoolIssue = createDraft.school_id
     ? null
     : "Kan ikke oprette fagudbud, fordi der ikke kunne findes en skole fra schools, aktivt skoleår eller eksisterende fagudbud.";
@@ -533,6 +597,7 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
       course_subject_id: nextSubject?.id || "",
       class_group_ids: []
     }));
+    setCreateAllowsRequirementMismatch(false);
   }
 
   function updateDraft(offering: AdminSubjectOfferingRow, patch: Partial<OfferingDraft>) {
@@ -575,7 +640,8 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
         body: JSON.stringify({
           action: "create",
           school_id: createDraft.school_id,
-          ...parsed.payload
+          ...parsed.payload,
+          allow_requirement_mismatch: createRequirementWarnings.length > 0 && createAllowsRequirementMismatch
         })
       });
 
@@ -590,6 +656,7 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
       const created = mapApiOffering(body, { schools, subjects, classGroups });
       setLocalOfferings((current) => sortOfferings([...current, created]));
       setCreateDraft(initialCreateDraft(schools, subjects, classGroups));
+      setCreateAllowsRequirementMismatch(false);
       setNotice(`${created.subject_name} blev oprettet som fagudbud.`);
       setLastSavedId(created.id);
       router.refresh();
@@ -608,9 +675,23 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
 
     const draft = drafts[offering.id] || offeringDraft(offering);
     const parsed = payloadFromDraft(draft);
+    const rowClassGroups = classGroups.filter((classGroup) => classGroup.school_id === offering.school_id);
+    const rowDuplicateWarnings = duplicateWarnings(draft, localOfferings, rowClassGroups, offering.id);
+    const rowRequirementWarnings = requirementWarnings(draft, rowClassGroups);
+    const allowsRequirementMismatch = rowRequirementOverrides[offering.id] === true;
 
     if (!parsed.payload) {
       setError(parsed.error || "Fagudbudsinput er ugyldigt.");
+      return;
+    }
+
+    if (rowDuplicateWarnings.length) {
+      setError(`Gem er blokeret: ${warningNames(rowDuplicateWarnings)} har allerede dette fag i et aktivt fagudbud.`);
+      return;
+    }
+
+    if (rowRequirementWarnings.length && !allowsRequirementMismatch) {
+      setError(`Bekræft advarslen først: ${warningNames(rowRequirementWarnings)} har ikke fagkrav for dette fag.`);
       return;
     }
 
@@ -628,7 +709,8 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
         body: JSON.stringify({
           action: "update",
           id: offering.id,
-          ...parsed.payload
+          ...parsed.payload,
+          allow_requirement_mismatch: rowRequirementWarnings.length > 0 && allowsRequirementMismatch
         })
       });
 
@@ -767,7 +849,10 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
             Fag
             <select
               disabled={!canWrite || savingKey === "create" || !createSubjects.length}
-              onChange={(event) => setCreateDraft((current) => ({ ...current, course_subject_id: event.target.value }))}
+              onChange={(event) => {
+                setCreateDraft((current) => ({ ...current, course_subject_id: event.target.value }));
+                setCreateAllowsRequirementMismatch(false);
+              }}
               value={createDraft.course_subject_id}
             >
               {createSubjects.map((subject) => (
@@ -868,13 +953,30 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
             <span>Hold</span>
             <ClassGroupPicker
               disabled={!canWrite || savingKey === "create"}
-              onChange={(nextIds) => setCreateDraft((current) => ({ ...current, class_group_ids: nextIds }))}
+              onChange={(nextIds) => {
+                setCreateDraft((current) => ({ ...current, class_group_ids: nextIds }));
+                setCreateAllowsRequirementMismatch(false);
+              }}
               options={createClassGroups}
               selectedIds={createDraft.class_group_ids}
             />
             <small>
               Primært hold: {createClassGroups.find((classGroup) => classGroup.id === createDraft.class_group_ids[0])?.name || "Vælg mindst ét hold"}
             </small>
+            {createDuplicateWarnings.length ? (
+              <p className="notice">Dublet blokeret: {warningNames(createDuplicateWarnings)} har allerede dette fag i et aktivt fagudbud.</p>
+            ) : null}
+            {createRequirementWarnings.length ? (
+              <label className="checkbox-preview requirement-warning-check">
+                <input
+                  checked={createAllowsRequirementMismatch}
+                  disabled={!canWrite || savingKey === "create"}
+                  onChange={(event) => setCreateAllowsRequirementMismatch(event.target.checked)}
+                  type="checkbox"
+                />
+                Advarsel: {warningNames(createRequirementWarnings)} har ikke fagkrav for dette fag. Opret alligevel.
+              </label>
+            ) : null}
           </div>
           <button disabled={!canWrite || !createReady || Boolean(createSchoolIssue) || savingKey === "create"} type="submit">
             {savingKey === "create" ? "Opretter..." : "Opret fagudbud"}
@@ -905,12 +1007,24 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
                   const rowSubjects = subjects.filter((subject) => subject.school_id === offering.school_id);
                   const rowClassGroups = classGroups.filter((classGroup) => classGroup.school_id === offering.school_id);
                   const primaryClassGroup = rowClassGroups.find((classGroup) => classGroup.id === draft.class_group_ids[0]);
+                  const rowDuplicateWarnings = duplicateWarnings(draft, localOfferings, rowClassGroups, offering.id);
+                  const rowRequirementWarnings = requirementWarnings(draft, rowClassGroups);
+                  const rowAllowsRequirementMismatch = rowRequirementOverrides[offering.id] === true;
                   const isSaving = savingKey === `update:${offering.id}`;
                   const isLifecycleSaving =
                     savingKey === `deactivate:${offering.id}` || savingKey === `reactivate:${offering.id}`;
                   const isDirty = hasDraftChanges(offering, draft);
                   const missingJoinRows = offering.class_group_ids.length === 0;
                   const canEdit = canWrite && !isSaving && !isLifecycleSaving && offering.is_active && !missingJoinRows;
+                  const canSave =
+                    canWrite &&
+                    isDirty &&
+                    !isSaving &&
+                    !isLifecycleSaving &&
+                    offering.is_active &&
+                    !missingJoinRows &&
+                    !rowDuplicateWarnings.length &&
+                    (!rowRequirementWarnings.length || rowAllowsRequirementMismatch);
                   const lifecycleAction = offering.is_active ? "deactivate" : "reactivate";
 
                   return (
@@ -919,7 +1033,10 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
                         <select
                           className="offering-field-input offering-subject-select"
                           disabled={!canEdit}
-                          onChange={(event) => updateDraft(offering, { course_subject_id: event.target.value })}
+                          onChange={(event) => {
+                            updateDraft(offering, { course_subject_id: event.target.value });
+                            setRowRequirementOverrides((current) => ({ ...current, [offering.id]: false }));
+                          }}
                           value={draft.course_subject_id}
                         >
                           {rowSubjects.map((subject) => (
@@ -934,12 +1051,34 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
                       <td>
                         <ClassGroupPicker
                           disabled={!canEdit}
-                          onChange={(nextIds) => updateDraft(offering, { class_group_ids: nextIds })}
+                          onChange={(nextIds) => {
+                            updateDraft(offering, { class_group_ids: nextIds });
+                            setRowRequirementOverrides((current) => ({ ...current, [offering.id]: false }));
+                          }}
                           options={rowClassGroups}
                           selectedIds={draft.class_group_ids}
                         />
                         <small>Primært hold: {primaryClassGroup?.name || (missingJoinRows ? "Mangler join-rækker" : "-")}</small>
                         {missingJoinRows ? <small>Redigering er disabled, indtil fagudbuddet har hold i join-tabellen.</small> : null}
+                        {rowDuplicateWarnings.length ? (
+                          <p className="notice">Dublet blokeret: {warningNames(rowDuplicateWarnings)} har allerede dette fag i et aktivt fagudbud.</p>
+                        ) : null}
+                        {rowRequirementWarnings.length ? (
+                          <label className="checkbox-preview requirement-warning-check">
+                            <input
+                              checked={rowAllowsRequirementMismatch}
+                              disabled={!canEdit}
+                              onChange={(event) =>
+                                setRowRequirementOverrides((current) => ({
+                                  ...current,
+                                  [offering.id]: event.target.checked
+                                }))
+                              }
+                              type="checkbox"
+                            />
+                            Advarsel: {warningNames(rowRequirementWarnings)} har ikke fagkrav for dette fag. Gem alligevel.
+                          </label>
+                        ) : null}
                       </td>
                       <td>
                         {asText(offering.legacy_class_group_name)}
@@ -1039,7 +1178,7 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
                         <div className="offering-actions">
                           <button
                             className="button-secondary"
-                            disabled={!canWrite || !isDirty || isSaving || isLifecycleSaving || !offering.is_active}
+                            disabled={!canSave}
                             onClick={() => void saveOffering(offering)}
                             type="button"
                           >

@@ -22,6 +22,7 @@ type RequestBody = {
   start_week?: unknown;
   priority?: unknown;
   sort_order?: unknown;
+  allow_requirement_mismatch?: unknown;
   archived_reason?: unknown;
 };
 type SchoolRow = {
@@ -84,6 +85,7 @@ type OfferingInput = {
   start_week: number;
   priority: SubjectPriority;
   sort_order: number | null;
+  allow_requirement_mismatch: boolean;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -118,6 +120,11 @@ function parseBoolean(value: unknown, fieldName: string) {
   if (value === "true") return { value: true, error: null };
   if (value === "false") return { value: false, error: null };
   return { value: null, error: `${fieldName} skal være true eller false.` };
+}
+
+function parseOptionalBoolean(value: unknown, fieldName: string, fallback = false) {
+  if (value === undefined || value === null || value === "") return { value: fallback, error: null };
+  return parseBoolean(value, fieldName);
 }
 
 function parseNumber(value: unknown, fieldName: string, max = 99999.99) {
@@ -225,6 +232,7 @@ function parseOfferingInput(rawBody: RequestBody): { value: OfferingInput | null
   const startWeek = parseRequiredInteger(rawBody.start_week, "start_week", 1, 80);
   const priority = parseEnum(rawBody.priority, PRIORITIES, "priority", "medium");
   const sortOrder = parseOptionalInteger(rawBody.sort_order, "sort_order");
+  const allowRequirementMismatch = parseOptionalBoolean(rawBody.allow_requirement_mismatch, "allow_requirement_mismatch");
   const firstError =
     (!courseSubjectId ? "course_subject_id skal være en gyldig uuid." : null) ||
     classGroupIds.error ||
@@ -235,7 +243,8 @@ function parseOfferingInput(rawBody: RequestBody): { value: OfferingInput | null
     periodUnit.error ||
     startWeek.error ||
     priority.error ||
-    sortOrder.error;
+    sortOrder.error ||
+    allowRequirementMismatch.error;
 
   if (
     firstError ||
@@ -246,7 +255,8 @@ function parseOfferingInput(rawBody: RequestBody): { value: OfferingInput | null
     periodValue.value === null ||
     !periodUnit.value ||
     startWeek.value === null ||
-    !priority.value
+    !priority.value ||
+    allowRequirementMismatch.value === null
   ) {
     return { value: null, error: firstError || "Fagudbudsinput er ugyldigt." };
   }
@@ -262,7 +272,8 @@ function parseOfferingInput(rawBody: RequestBody): { value: OfferingInput | null
       period_unit: periodUnit.value,
       start_week: startWeek.value,
       priority: priority.value,
-      sort_order: sortOrder.value
+      sort_order: sortOrder.value,
+      allow_requirement_mismatch: allowRequirementMismatch.value
     },
     error: null
   };
@@ -447,6 +458,129 @@ async function validateClassGroups(
   }
 
   return { data: found, error: null };
+}
+
+async function findDuplicateClassSubjects(
+  client: NonNullable<ReturnType<typeof createServerSupabaseAdminClient>>,
+  input: {
+    schoolId: string;
+    courseSubjectId: string;
+    classGroupIds: string[];
+    classGroups: ClassGroupRow[];
+    excludeSubjectOfferingId?: string | null;
+  }
+) {
+  const membershipRows = await client
+    .from("subject_offering_class_groups")
+    .select("subject_offering_id,class_group_id")
+    .eq("school_id", input.schoolId)
+    .in("class_group_id", input.classGroupIds);
+
+  if (membershipRows.error) {
+    return { duplicates: [], error: `subject_offering_class_groups duplicate check: ${membershipRows.error.message}` };
+  }
+
+  const membershipOfferingIds = [
+    ...new Set((membershipRows.data || []).map((membership) => membership.subject_offering_id).filter(Boolean) as string[])
+  ];
+  const offeringMatchesByClassGroup = new Map<string, string[]>();
+  const classGroupNameById = new Map(input.classGroups.map((classGroup) => [classGroup.id, classGroup.name]));
+
+  if (membershipOfferingIds.length) {
+    let memberOfferingsQuery = client
+      .from("subject_offerings")
+      .select("id,course_subject_id,is_active")
+      .in("id", membershipOfferingIds)
+      .eq("course_subject_id", input.courseSubjectId)
+      .eq("is_active", true);
+
+    if (input.excludeSubjectOfferingId) {
+      memberOfferingsQuery = memberOfferingsQuery.neq("id", input.excludeSubjectOfferingId);
+    }
+
+    const memberOfferings = await memberOfferingsQuery;
+
+    if (memberOfferings.error) {
+      return { duplicates: [], error: `subject_offerings member duplicate check: ${memberOfferings.error.message}` };
+    }
+
+    const matchingOfferingIds = new Set((memberOfferings.data || []).map((offering) => offering.id));
+
+    for (const membership of membershipRows.data || []) {
+      if (!matchingOfferingIds.has(membership.subject_offering_id)) continue;
+
+      const existing = offeringMatchesByClassGroup.get(membership.class_group_id) || [];
+      existing.push(membership.subject_offering_id);
+      offeringMatchesByClassGroup.set(membership.class_group_id, existing);
+    }
+  }
+
+  let legacyQuery = client
+    .from("subject_offerings")
+    .select("id,class_group_id,course_subject_id,is_active")
+    .eq("school_id", input.schoolId)
+    .eq("course_subject_id", input.courseSubjectId)
+    .eq("is_active", true)
+    .in("class_group_id", input.classGroupIds);
+
+  if (input.excludeSubjectOfferingId) {
+    legacyQuery = legacyQuery.neq("id", input.excludeSubjectOfferingId);
+  }
+
+  const legacyMatches = await legacyQuery;
+
+  if (legacyMatches.error) {
+    return { duplicates: [], error: `subject_offerings legacy duplicate check: ${legacyMatches.error.message}` };
+  }
+
+  for (const offering of legacyMatches.data || []) {
+    const existing = offeringMatchesByClassGroup.get(offering.class_group_id) || [];
+    existing.push(offering.id);
+    offeringMatchesByClassGroup.set(offering.class_group_id, existing);
+  }
+
+  return {
+    duplicates: [...offeringMatchesByClassGroup.entries()].map(([classGroupId, subjectOfferingIds]) => ({
+      class_group_id: classGroupId,
+      class_group_name: classGroupNameById.get(classGroupId) || classGroupId,
+      subject_offering_ids: [...new Set(subjectOfferingIds)]
+    })),
+    error: null
+  };
+}
+
+async function findRequirementMismatches(
+  client: NonNullable<ReturnType<typeof createServerSupabaseAdminClient>>,
+  input: {
+    schoolId: string;
+    courseSubjectId: string;
+    classGroupIds: string[];
+    classGroups: ClassGroupRow[];
+  }
+) {
+  const requirements = await client
+    .from("v_requirement_status")
+    .select("class_group_id,course_subject_id")
+    .eq("school_id", input.schoolId)
+    .eq("course_subject_id", input.courseSubjectId)
+    .in("class_group_id", input.classGroupIds);
+
+  if (requirements.error) {
+    return { mismatches: [], error: `v_requirement_status: ${requirements.error.message}` };
+  }
+
+  const requiredClassGroupIds = new Set((requirements.data || []).map((requirement) => requirement.class_group_id));
+  const classGroupNameById = new Map(input.classGroups.map((classGroup) => [classGroup.id, classGroup.name]));
+
+  return {
+    mismatches: input.classGroupIds
+      .filter((classGroupId) => !requiredClassGroupIds.has(classGroupId))
+      .map((classGroupId) => ({
+        class_group_id: classGroupId,
+        class_group_name: classGroupNameById.get(classGroupId) || classGroupId
+      })),
+    error: null
+  };
 }
 
 async function getAuthedRequestContext(request: NextRequest) {
@@ -699,6 +833,44 @@ export async function POST(request: NextRequest) {
     return json(classGroups.error.startsWith("class_groups:") ? 500 : 400, { success: false, error: classGroups.error });
   }
 
+  const duplicates = await findDuplicateClassSubjects(client, {
+    schoolId,
+    courseSubjectId: input.value.course_subject_id,
+    classGroupIds: input.value.class_group_ids,
+    classGroups: classGroups.data || []
+  });
+
+  if (duplicates.error) {
+    return json(500, { success: false, error: duplicates.error });
+  }
+
+  if (duplicates.duplicates.length) {
+    return json(409, {
+      success: false,
+      error: "Fagudbuddet ville skabe dubletter: ét eller flere valgte hold har allerede dette fag i et aktivt fagudbud.",
+      duplicates: duplicates.duplicates
+    });
+  }
+
+  const requirementMismatches = await findRequirementMismatches(client, {
+    schoolId,
+    courseSubjectId: input.value.course_subject_id,
+    classGroupIds: input.value.class_group_ids,
+    classGroups: classGroups.data || []
+  });
+
+  if (requirementMismatches.error) {
+    return json(500, { success: false, error: requirementMismatches.error });
+  }
+
+  if (requirementMismatches.mismatches.length && !input.value.allow_requirement_mismatch) {
+    return json(409, {
+      success: false,
+      error: "Et eller flere valgte hold har ikke et fagkrav for dette fag. Bekræft advarslen for at fortsætte.",
+      requirement_mismatches: requirementMismatches.mismatches
+    });
+  }
+
   const inserted = await client
     .from("subject_offerings")
     .insert({
@@ -907,6 +1079,45 @@ export async function PATCH(request: NextRequest) {
 
   if (classGroups.error) {
     return json(classGroups.error.startsWith("class_groups:") ? 500 : 400, { success: false, error: classGroups.error });
+  }
+
+  const duplicates = await findDuplicateClassSubjects(client, {
+    schoolId: existing.data.school_id,
+    courseSubjectId: input.value.course_subject_id,
+    classGroupIds: input.value.class_group_ids,
+    classGroups: classGroups.data || [],
+    excludeSubjectOfferingId: offeringId
+  });
+
+  if (duplicates.error) {
+    return json(500, { success: false, error: duplicates.error });
+  }
+
+  if (duplicates.duplicates.length) {
+    return json(409, {
+      success: false,
+      error: "Fagudbuddet ville skabe dubletter: ét eller flere valgte hold har allerede dette fag i et andet aktivt fagudbud.",
+      duplicates: duplicates.duplicates
+    });
+  }
+
+  const requirementMismatches = await findRequirementMismatches(client, {
+    schoolId: existing.data.school_id,
+    courseSubjectId: input.value.course_subject_id,
+    classGroupIds: input.value.class_group_ids,
+    classGroups: classGroups.data || []
+  });
+
+  if (requirementMismatches.error) {
+    return json(500, { success: false, error: requirementMismatches.error });
+  }
+
+  if (requirementMismatches.mismatches.length && !input.value.allow_requirement_mismatch) {
+    return json(409, {
+      success: false,
+      error: "Et eller flere valgte hold har ikke et fagkrav for dette fag. Bekræft advarslen for at fortsætte.",
+      requirement_mismatches: requirementMismatches.mismatches
+    });
   }
 
   const existingMemberships = await getMemberships(client, offeringId);

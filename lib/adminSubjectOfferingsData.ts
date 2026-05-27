@@ -25,6 +25,7 @@ export type AdminSubjectOfferingClassGroupOption = {
   name: string;
   legacy_id: string | null;
   address_label: string | null;
+  required_course_subject_ids: string[];
 };
 
 export type AdminSubjectOfferingClassGroupRow = {
@@ -302,6 +303,7 @@ export async function getAdminSubjectOfferingsData() {
     workloadYears,
     subjects,
     classGroups,
+    requirementStatus,
     memberships,
     assignments,
     suggestions,
@@ -312,6 +314,7 @@ export async function getAdminSubjectOfferingsData() {
     readRows<Row>("workload_years", "id,school_id,label,is_active", { order: "starts_on", ascending: false, limit: 20 }),
     readRows<Row>("course_subjects", "id,school_id,name,normalized_key", { order: "name", limit: 3000 }),
     readRows<Row>("class_groups", "id,school_id,legacy_id,name,address_label", { order: "name", limit: 3000 }),
+    readRows<Row>("v_requirement_status", "class_group_id,course_subject_id", { limit: 20000 }),
     readRows<Row>(
       "subject_offering_class_groups",
       "subject_offering_id,class_group_id,school_id,member_role,sort_order,metadata,created_at,updated_at",
@@ -328,6 +331,7 @@ export async function getAdminSubjectOfferingsData() {
   const subjectMap = mapById(subjects.data);
   const classGroupMap = mapById(classGroups.data);
   const pairingGroupMap = mapById(pairingGroups.data);
+  const requirementsByClassGroup = groupRows(requirementStatus.data, "class_group_id");
   const membershipsByOffering = groupRows(memberships.data, "subject_offering_id");
   const assignmentCounts = countBy(assignments.data, "subject_offering_id");
   const suggestionCounts = countBy(suggestions.data, "subject_offering_id");
@@ -396,7 +400,10 @@ export async function getAdminSubjectOfferingsData() {
       school_id: classGroup.school_id,
       name: classGroup.name,
       legacy_id: classGroup.legacy_id ?? null,
-      address_label: classGroup.address_label ?? null
+      address_label: classGroup.address_label ?? null,
+      required_course_subject_ids: [
+        ...new Set((requirementsByClassGroup[classGroup.id] || []).map((requirement) => requirement.course_subject_id).filter(Boolean))
+      ]
     })),
     schema,
     issues: issuesFrom([
@@ -405,6 +412,7 @@ export async function getAdminSubjectOfferingsData() {
       workloadYears,
       subjects,
       classGroups,
+      requirementStatus,
       memberships,
       assignments,
       suggestions,

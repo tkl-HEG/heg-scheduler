@@ -69,6 +69,8 @@ Ved opret med flere hold opretter `/admin/fagudbud` ét `subject_offering`, sæt
 
 Ændringer i selve fagudbuddet audit-logges med `table_name = subject_offerings`, `record_id = subject_offerings.id`, `before_data` og `after_data`. Ændringer i holdtilknytninger audit-logges separat med `table_name = subject_offering_class_groups`, `record_id = subject_offerings.id` og `metadata.class_group_id`, fordi join-tabellen har sammensat primærnøgle.
 
+Sammenlæsning må ikke skabe dubletter. `/admin/fagudbud` blokerer derfor et valgt hold, hvis holdet allerede har samme fag i et andet aktivt fagudbud, og route handleren gentager kontrollen server-side. Hvis et valgt hold ikke har et matchende fagkrav i `v_requirement_status`, viser UI en tydelig advarsel og kræver eksplicit bekræftelse; serveren afviser også ændringen uden `allow_requirement_mismatch`.
+
 Admin workload-rækker vises primært fra `v_teacher_workload_status`. `teachers`, `workload_years` og `teacher_workload_allocations` bruges til at berige rækkerne med write-UUID’er og eksisterende `allocated_hours`. Rækker uden gyldigt `teacher_id` eller `workload_year_id` vises stadig, men Gem er disabled for den række.
 
 Gem på `/admin/opgaveoversigt` aktiveres kun for rækker med gyldige UUID’er i `teacher_id` og `workload_year_id`, write-adgang og et gyldigt timetal. Klienten sender kun `teacher_id`, `workload_year_id` og `allocated_hours` til server-routen og falder aldrig tilbage til initialer eller navn som id. `Rest` beregnes lokalt fra den aktuelle inputværdi som `allocated_hours - assigned_hours_known - assigned_hours_missing`, så tallet opdateres med det samme og efter gem.

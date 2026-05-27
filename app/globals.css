@@ -708,6 +708,16 @@ small {
   margin-top: 6px;
 }
 
+.requirement-warning-check {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #d7b56a;
+  border-radius: 6px;
+  background: #fff8e6;
+  color: #4d3710;
+  text-transform: none;
+}
+
 .offering-period-grid {
   display: grid;
   grid-template-columns: 88px 112px;
