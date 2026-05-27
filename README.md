@@ -104,11 +104,13 @@ npm install
 npm run dev
 ```
 
-Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kalendere` og `/staa-review`.
+Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kalendere`, `/staa-review`, `/admin/kompetencer`, `/admin/opgaveoversigt`, `/admin/fag` og `/admin/status`.
 
 `/admin/kompetencer` er en guarded adminside for lærerkompetencer. Email-kode-login via Resend/Supabase virker, og `owner`, `admin` og `editor` kan redigere kompetencer; add/remove skrives til `data_change_log` som audit. Ikke-loggede brugere og `viewer` ser siden read-only.
 
 `/admin/opgaveoversigt` bruger samme sikkerhedsmodel til lærer-årstimer: `owner`, `admin` og `editor` kan redigere `allocated_hours`, mens ikke-loggede brugere og `viewer` er read-only. Ændringer sker server-side og audit-logges med before/after i `data_change_log`.
+
+`/admin/fag` bruger samme server-side sikkerhedsmodel til `course_subjects`: `owner`, `admin` og `editor` kan oprette fag og redigere `name`/`normalized_key`, mens ikke-loggede brugere og `viewer` er read-only. Ændringer skrives via `/api/admin/course-subjects` og audit-logges i `data_change_log`. Det nuværende schema har ikke `is_active`, `status` eller `archived_at`, så der laves ingen hard delete; deaktivering er read-only fallback, indtil en migration tilføjer et lifecycle-felt.
 
 Se `docs/server-side-edits.md` for den planlagte server-only write-model og Vercel environment variables.
 

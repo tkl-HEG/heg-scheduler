@@ -47,6 +47,10 @@ Status efter test: email-kode-login via Resend/Supabase virker. Brugere med `own
 
 Samme sikkerhedsmodel bruges til admin-redigering af lærer-årstimer på `/admin/opgaveoversigt`: owner/admin/editor kan ændre `allocated_hours`, mens ikke-loggede brugere og `viewer` ser read-only fallback. Ændringer sendes til `PATCH /api/admin/teacher-workload-allocations`, som kræver bearer token, rollechecker server-side og skriver before/after audit i `data_change_log`.
 
+`/admin/fag` bruger også samme model til `course_subjects`: owner/admin/editor kan oprette fag og redigere `name` samt `normalized_key` via `/api/admin/course-subjects`. Route handleren kræver `Authorization: Bearer <access_token>`, finder skolens organisation, genbruger rollechecket og skriver `insert`/`update` audit-rækker i `data_change_log` med `table_name = course_subjects`, `before_data` og `after_data`.
+
+`course_subjects` har i det nuværende schema ikke `is_active`, `status` eller `archived_at`. Derfor laver `/admin/fag` ingen hard delete og aktiverer ikke deaktivering/arkivering. UI viser deaktivering som låst fallback, og API-routen afviser `deactivate`, indtil en migration tilføjer et lifecycle-felt.
+
 Admin workload-rækker vises primært fra `v_teacher_workload_status`. `teachers`, `workload_years` og `teacher_workload_allocations` bruges til at berige rækkerne med write-UUID’er og eksisterende `allocated_hours`. Rækker uden gyldigt `teacher_id` eller `workload_year_id` vises stadig, men Gem er disabled for den række.
 
 Gem på `/admin/opgaveoversigt` aktiveres kun for rækker med gyldige UUID’er i `teacher_id` og `workload_year_id`, write-adgang og et gyldigt timetal. Klienten sender kun `teacher_id`, `workload_year_id` og `allocated_hours` til server-routen og falder aldrig tilbage til initialer eller navn som id. `Rest` beregnes lokalt fra den aktuelle inputværdi som `allocated_hours - assigned_hours_known - assigned_hours_missing`, så tallet opdateres med det samme og efter gem.
@@ -176,6 +180,7 @@ Route handleren er nu koblet til UI for owner/admin/editor via `/admin/kompetenc
 ## Hvad vi stadig ikke gør
 
 - Ingen write-knapper for viewer eller ikke-loggede brugere på `/admin/kompetencer`.
+- Ingen hard delete af fag på `/admin/fag`; deaktivering kræver først `is_active`, `status` eller `archived_at`.
 - Ingen anon insert/update/delete policies.
 - Ingen service role key i client components.
 - Ingen ændringer til `lesson_bookings`.
