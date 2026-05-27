@@ -135,7 +135,7 @@ function optionalIntegerText(value: number | null | undefined) {
 function offeringDraft(offering: AdminSubjectOfferingRow): OfferingDraft {
   return {
     course_subject_id: offering.course_subject_id,
-    class_group_ids: offering.class_group_ids.length ? offering.class_group_ids : [offering.class_group_id],
+    class_group_ids: offering.class_group_ids,
     total_hours: decimalText(offering.total_hours),
     hours_missing: offering.hours_missing,
     hours_source: offering.hours_source || "",
@@ -162,12 +162,11 @@ function initialCreateDraft(
 ): CreateDraft {
   const schoolId = firstSchoolId(schools, subjects, classGroups);
   const firstSubject = subjects.find((subject) => subject.school_id === schoolId) || subjects[0] || null;
-  const firstClassGroup = classGroups.find((classGroup) => classGroup.school_id === schoolId) || classGroups[0] || null;
 
   return {
     school_id: schoolId,
     course_subject_id: firstSubject?.id || "",
-    class_group_ids: firstClassGroup ? [firstClassGroup.id] : [],
+    class_group_ids: [],
     total_hours: "0",
     hours_missing: false,
     hours_source: "",
@@ -527,13 +526,12 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
 
   function updateCreateSchool(schoolId: string) {
     const nextSubject = subjects.find((subject) => subject.school_id === schoolId);
-    const nextClassGroup = classGroups.find((classGroup) => classGroup.school_id === schoolId);
 
     setCreateDraft((current) => ({
       ...current,
       school_id: schoolId,
       course_subject_id: nextSubject?.id || "",
-      class_group_ids: nextClassGroup ? [nextClassGroup.id] : []
+      class_group_ids: []
     }));
   }
 
@@ -874,7 +872,9 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
               options={createClassGroups}
               selectedIds={createDraft.class_group_ids}
             />
-            <small>Primært hold: {asText(createClassGroups.find((classGroup) => classGroup.id === createDraft.class_group_ids[0])?.name)}</small>
+            <small>
+              Primært hold: {createClassGroups.find((classGroup) => classGroup.id === createDraft.class_group_ids[0])?.name || "Vælg mindst ét hold"}
+            </small>
           </div>
           <button disabled={!canWrite || !createReady || Boolean(createSchoolIssue) || savingKey === "create"} type="submit">
             {savingKey === "create" ? "Opretter..." : "Opret fagudbud"}
@@ -909,7 +909,8 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
                   const isLifecycleSaving =
                     savingKey === `deactivate:${offering.id}` || savingKey === `reactivate:${offering.id}`;
                   const isDirty = hasDraftChanges(offering, draft);
-                  const canEdit = canWrite && !isSaving && !isLifecycleSaving && offering.is_active;
+                  const missingJoinRows = offering.class_group_ids.length === 0;
+                  const canEdit = canWrite && !isSaving && !isLifecycleSaving && offering.is_active && !missingJoinRows;
                   const lifecycleAction = offering.is_active ? "deactivate" : "reactivate";
 
                   return (
@@ -937,7 +938,8 @@ export function AdminSubjectOfferingsClient({ offerings, schools, subjects, clas
                           options={rowClassGroups}
                           selectedIds={draft.class_group_ids}
                         />
-                        <small>Primært hold: {asText(primaryClassGroup?.name)}</small>
+                        <small>Primært hold: {primaryClassGroup?.name || (missingJoinRows ? "Mangler join-rækker" : "-")}</small>
+                        {missingJoinRows ? <small>Redigering er disabled, indtil fagudbuddet har hold i join-tabellen.</small> : null}
                       </td>
                       <td>
                         {asText(offering.legacy_class_group_name)}

@@ -274,7 +274,6 @@ function membershipRows(input: {
   offeringId: string;
   memberships: Row[];
   classesById: Map<string, Row>;
-  fallbackClassGroupId: string | null;
 }): AdminSubjectOfferingClassGroupRow[] {
   const rows = input.memberships
     .map((membership): AdminSubjectOfferingClassGroupRow | null => {
@@ -293,24 +292,7 @@ function membershipRows(input: {
     })
     .filter(Boolean) as AdminSubjectOfferingClassGroupRow[];
 
-  if (rows.length || !input.fallbackClassGroupId) {
-    return rows.sort((a, b) => (a.sort_order ?? 9999) - (b.sort_order ?? 9999) || a.class_group_name.localeCompare(b.class_group_name, "da"));
-  }
-
-  const fallbackClass = input.classesById.get(input.fallbackClassGroupId);
-  if (!fallbackClass) return [];
-
-  return [
-    {
-      subject_offering_id: input.offeringId,
-      class_group_id: fallbackClass.id,
-      school_id: fallbackClass.school_id,
-      member_role: "legacy_primary",
-      sort_order: 1,
-      class_group_name: fallbackClass.name || "-",
-      class_group_legacy_id: fallbackClass.legacy_id ?? null
-    }
-  ];
+  return rows.sort((a, b) => (a.sort_order ?? 9999) - (b.sort_order ?? 9999) || a.class_group_name.localeCompare(b.class_group_name, "da"));
 }
 
 export async function getAdminSubjectOfferingsData() {
@@ -358,8 +340,7 @@ export async function getAdminSubjectOfferingsData() {
     const classMemberships = membershipRows({
       offeringId: offering.id,
       memberships: membershipsByOffering[offering.id] || [],
-      classesById: classGroupMap,
-      fallbackClassGroupId: offering.class_group_id
+      classesById: classGroupMap
     });
     const isActive = offering.is_active !== false;
     const pairingGroup = pairingGroupMap.get(offering.pairing_group_id);
