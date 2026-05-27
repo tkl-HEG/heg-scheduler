@@ -141,6 +141,17 @@ function findOptionLabel(options: AdminHoldOptionRow[], id: string | null, fallb
   return option ? option.label : fallback;
 }
 
+function campusLabel(campuses: AdminHoldOptionRow[], id: string | null | undefined) {
+  if (!id) return "";
+  return campuses.find((campus) => campus.id === id)?.label || "";
+}
+
+function shouldAutoReplaceAddress(currentAddress: string, oldCampusName: string) {
+  const normalizedAddress = currentAddress.trim().toLocaleLowerCase("da-DK");
+  const normalizedCampus = oldCampusName.trim().toLocaleLowerCase("da-DK");
+  return !normalizedAddress || Boolean(normalizedCampus && normalizedAddress === normalizedCampus);
+}
+
 function mapApiHold(
   hold: ApiHold,
   input: {
@@ -313,7 +324,7 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
   }
 
   const canWrite = Boolean(session && status.hasWriteAccess);
-  const createReady = Boolean(createDraft.school_id && createDraft.name.trim() && createDraft.address_label.trim());
+  const createReady = Boolean(createDraft.school_id && createDraft.name.trim() && (createDraft.campus_id || createDraft.address_label.trim()));
   const createSchoolIssue = schools.length
     ? null
     : "Kan ikke oprette hold, fordi der ikke kunne findes en skole fra schools, aktivt skoleår eller eksisterende hold.";
@@ -343,14 +354,41 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
     }));
   }
 
+  function updateCreateCampus(nextCampusId: string) {
+    setCreateDraft((current) => {
+      const oldCampusName = campusLabel(campuses, current.campus_id);
+      const nextCampusName = campusLabel(campuses, nextCampusId);
+
+      return {
+        ...current,
+        campus_id: nextCampusId,
+        address_label: shouldAutoReplaceAddress(current.address_label, oldCampusName) ? nextCampusName : current.address_label
+      };
+    });
+  }
+
+  function updateHoldCampus(hold: AdminHoldRow, nextCampusId: string) {
+    const currentDraft = drafts[hold.id] || holdDraft(hold);
+    const oldCampusName = campusLabel(campuses, currentDraft.campus_id);
+    const nextCampusName = campusLabel(campuses, nextCampusId);
+
+    updateDraft(hold, {
+      campus_id: nextCampusId,
+      address_label: shouldAutoReplaceAddress(currentDraft.address_label, oldCampusName)
+        ? nextCampusName
+        : currentDraft.address_label
+    });
+  }
+
   function payloadFromDraft(draft: HoldDraft) {
     const weeks = parseWeeks(draft.default_period_weeks);
+    const fallbackAddress = campusLabel(campuses, draft.campus_id);
 
     return {
       school_id: draft.school_id,
       name: draft.name.trim(),
       legacy_id: normalizeText(draft.legacy_id),
-      address_label: draft.address_label.trim(),
+      address_label: draft.address_label.trim() || fallbackAddress,
       campus_id: normalizeText(draft.campus_id),
       class_category_id: normalizeText(draft.class_category_id),
       education_program_id: normalizeText(draft.education_program_id),
@@ -369,7 +407,7 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
     }
 
     if (!createReady) {
-      setError("Holdnavn, adresse/lokation og skole skal udfyldes.");
+      setError("Holdnavn, campus/lokation og skole skal udfyldes.");
       return;
     }
 
@@ -419,8 +457,8 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
 
     const draft = drafts[hold.id] || holdDraft(hold);
 
-    if (!draft.name.trim() || !draft.address_label.trim()) {
-      setError("Holdnavn og adresse/lokation skal udfyldes.");
+    if (!draft.name.trim() || (!draft.address_label.trim() && !draft.campus_id)) {
+      setError("Holdnavn og campus/lokation skal udfyldes.");
       return;
     }
 
@@ -605,21 +643,10 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
             />
           </label>
           <label>
-            Adresse/lokation
-            <input
-              disabled={!canWrite || savingKey === "create"}
-              onChange={(event) => setCreateDraft((current) => ({ ...current, address_label: event.target.value }))}
-              placeholder="Aars, Hobro..."
-              readOnly={!canWrite}
-              type="text"
-              value={createDraft.address_label}
-            />
-          </label>
-          <label>
             Campus
             <select
               disabled={!canWrite || savingKey === "create"}
-              onChange={(event) => setCreateDraft((current) => ({ ...current, campus_id: event.target.value }))}
+              onChange={(event) => updateCreateCampus(event.target.value)}
               value={createDraft.campus_id}
             >
               <option value="">Ingen valgt</option>
@@ -629,6 +656,17 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
                 </option>
               ))}
             </select>
+          </label>
+          <label>
+            Lokation override
+            <input
+              disabled={!canWrite || savingKey === "create"}
+              onChange={(event) => setCreateDraft((current) => ({ ...current, address_label: event.target.value }))}
+              placeholder="Kun hvis lokation afviger fra campus"
+              readOnly={!canWrite}
+              type="text"
+              value={createDraft.address_label}
+            />
           </label>
           <label>
             Kategori
@@ -685,7 +723,7 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
             <thead>
               <tr>
                 <th>Hold</th>
-                <th>Lokation</th>
+                <th>Campus/lokation</th>
                 <th>Kategori</th>
                 <th>Program</th>
                 <th>Uger</th>
@@ -727,18 +765,10 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
                         />
                       </td>
                       <td>
-                        <input
-                          className="hold-field-input"
-                          disabled={!canEdit}
-                          onChange={(event) => updateDraft(hold, { address_label: event.target.value })}
-                          readOnly={!canEdit}
-                          type="text"
-                          value={draft.address_label}
-                        />
                         <select
                           className="hold-field-input"
                           disabled={!canEdit}
-                          onChange={(event) => updateDraft(hold, { campus_id: event.target.value })}
+                          onChange={(event) => updateHoldCampus(hold, event.target.value)}
                           value={draft.campus_id}
                         >
                           <option value="">Ingen campus</option>
@@ -748,6 +778,15 @@ export function AdminHoldsClient({ holds, schools, campuses, categories, program
                             </option>
                           ))}
                         </select>
+                        <input
+                          className="hold-field-input hold-small-input"
+                          disabled={!canEdit}
+                          onChange={(event) => updateDraft(hold, { address_label: event.target.value })}
+                          placeholder="Lokation override"
+                          readOnly={!canEdit}
+                          type="text"
+                          value={draft.address_label}
+                        />
                       </td>
                       <td>
                         <select
