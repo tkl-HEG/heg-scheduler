@@ -18,6 +18,8 @@ Indhold:
 - `supabase/migrations/013_seed_teacher_workload_allocations.sql` - seeder midlertidige årsnormer for `2026/2027`: 750 timer som standard, JHM 100, CNH 350 og LSSS 0.
 - `supabase/migrations/018_course_subject_lifecycle.sql` - tilføjer soft lifecycle til fag med `is_active` og arkivfelter til `/admin/fag`.
 - `supabase/migrations/019_hold_lifecycle.sql` - tilføjer soft lifecycle til hold med `is_active` og arkivfelter til `/admin/hold`.
+- `supabase/migrations/020_subject_offering_class_groups.sql` - opretter join-tabellen, så ét fagudbud kan kobles til flere hold.
+- `supabase/migrations/021_subject_offering_lifecycle.sql` - tilføjer soft lifecycle til fagudbud med `is_active` og arkivfelter til `/admin/fagudbud`.
 - `scripts/import-official-hf-calendar.mjs` - parser `Kalender 2023-2028 nyt forslag.xlsx` med dry-run og Supabase-import.
 - `scripts/import-planning-calendars.mjs` - parser GF1/GF2/STÅ Excel-udkast og DOCX med vigtige datoer med dry-run og senere Supabase-import.
 - `scripts/import-stamdata.mjs` - parser prototype- og Excel-stamdata med dry-run og senere Supabase-import.
@@ -106,7 +108,7 @@ npm install
 npm run dev
 ```
 
-Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kalendere`, `/staa-review`, `/admin/kompetencer`, `/admin/opgaveoversigt`, `/admin/fag`, `/admin/hold` og `/admin/status`.
+Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kalendere`, `/staa-review`, `/admin/kompetencer`, `/admin/opgaveoversigt`, `/admin/fag`, `/admin/hold`, `/admin/fagudbud` og `/admin/status`.
 
 `/admin/kompetencer` er en guarded adminside for lærerkompetencer. Email-kode-login via Resend/Supabase virker, og `owner`, `admin` og `editor` kan redigere kompetencer; add/remove skrives til `data_change_log` som audit. Ikke-loggede brugere og `viewer` ser siden read-only.
 
@@ -114,9 +116,13 @@ Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kale
 
 `/admin/fag` bruger samme server-side sikkerhedsmodel til `course_subjects`: `owner`, `admin` og `editor` kan oprette fag, redigere `name`/`normalized_key` og deaktivere/genaktivere fag, mens ikke-loggede brugere og `viewer` er read-only. Ændringer skrives via `/api/admin/course-subjects` og audit-logges i `data_change_log`. Migration `018_course_subject_lifecycle.sql` skal køres i Supabase for at tilføje `is_active`, `archived_at`, `archived_by` og `archived_reason`; deaktivering er soft lifecycle og aldrig hard delete.
 
-`/admin/hold` redigerer hold-stamdata i `class_groups`: `owner`, `admin` og `editor` kan oprette, redigere, deaktivere og genaktivere hold via `/api/admin/holds`; ikke-loggede brugere og `viewer` er read-only. Migration `019_hold_lifecycle.sql` skal køres i Supabase for soft lifecycle på hold. Hold opretter ikke fag eller fagudbud. Sammenlæsning mellem flere hold skal senere håndteres i fagudbud/undervisningsgruppe-modellen, fordi `subject_offerings` aktuelt kun peger på én `class_group_id`.
+`/admin/hold` redigerer hold-stamdata i `class_groups`: `owner`, `admin` og `editor` kan oprette, redigere, deaktivere og genaktivere hold via `/api/admin/holds`; ikke-loggede brugere og `viewer` er read-only. Migration `019_hold_lifecycle.sql` skal køres i Supabase for soft lifecycle på hold. Hold opretter ikke fag eller fagudbud.
 
-Migration `020_subject_offering_class_groups.sql` opretter `subject_offering_class_groups` som databasefundament for sammenlæsning: ét `subject_offering` kan kobles til flere `class_groups`. Eksisterende `subject_offerings.class_group_id` bevares midlertidigt som legacy/primært hold, og eksisterende fagudbud backfilles med én `primary` medlemsrække. Næste fase er en kontrolleret `/admin/fagudbud` eller `/admin/undervisningsgrupper` write-model.
+`/admin/fagudbud` redigerer fagudbud/undervisningsgrupper i `subject_offerings`: `owner`, `admin` og `editor` kan oprette fagudbud, vælge fag fra `course_subjects`, vælge ét eller flere hold fra `class_groups`, redigere timer/periodefelter og deaktivere/genaktivere via `/api/admin/subject-offerings`. Ikke-loggede brugere og `viewer` er read-only. Alle writes sker server-side med bearer-token, rollecheck og audit-log i `data_change_log`.
+
+Migration `020_subject_offering_class_groups.sql` opretter `subject_offering_class_groups` som databasefundament for sammenlæsning: ét `subject_offering` kan kobles til flere `class_groups`. Eksisterende `subject_offerings.class_group_id` bevares som legacy/primært hold, og eksisterende fagudbud backfilles med én `primary` medlemsrække. Ved opret med flere hold oprettes ét `subject_offering`, `class_group_id` sættes til det første valgte hold, og join-tabellen får en række pr. hold. Sammenlæsning håndteres altså som flere hold på samme fagudbud, ikke som campus-specifikke stamfag.
+
+Migration `021_subject_offering_lifecycle.sql` tilføjer `is_active`, `archived_at`, `archived_by` og `archived_reason` til `subject_offerings`. Deaktivering på `/admin/fagudbud` er soft lifecycle og aldrig hard delete. Ændringer i selve fagudbuddet audit-logges med `table_name = subject_offerings`; ændringer i holdtilknytninger audit-logges med `table_name = subject_offering_class_groups` og before/after snapshots.
 
 Se `docs/server-side-edits.md` for den planlagte server-only write-model og Vercel environment variables.
 

@@ -1,6 +1,6 @@
 # Server-side edits
 
-Dette dokument beskriver modellen for redigering af lærerkompetencer. `/admin/kompetencer` bruger stadig read-only fallback for viewer og ikke-loggede brugere, men UI-write er nu aktiveret for owner/admin/editor via den kontrollerede server-route.
+Dette dokument beskriver modellen for server-side adminredigering. Adminsiderne bruger stadig read-only fallback for viewer og ikke-loggede brugere, mens UI-write er aktiveret for owner/admin/editor via kontrollerede server-routes.
 
 ## Placering
 
@@ -57,11 +57,17 @@ Opret fag finder `school_id` robust: først fra `schools`, dernæst aktivt `work
 
 Migration `019_hold_lifecycle.sql` tilføjer `is_active`, `archived_at`, `archived_by` og `archived_reason` til `class_groups`. Deaktivering er soft lifecycle og hard-deleter aldrig hold. Opret hold finder `school_id` robust på samme måde som `/admin/fag`: `schools`, aktivt `workload_years.school_id` og til sidst ensartet `class_groups.school_id`.
 
-Hold er stamdata. `/admin/hold` må ikke oprette campus-specifikke fag eller fagudbud pr. hold. Den nuværende datamodel har `subject_offerings.class_group_id`, altså ét hold pr. fagudbud. Sammenlæsning mellem fx HGF2EUD og HGF2EUX i samme fag skal derfor senere håndteres i en udvidet fagudbud/undervisningsgruppe-model, hvor ét fagudbud kan kobles til flere hold.
+Hold er stamdata. `/admin/hold` må ikke oprette campus-specifikke fag eller fagudbud pr. hold. Sammenlæsning mellem fx HGF2EUD og HGF2EUX i samme fag håndteres i fagudbud/undervisningsgruppe-modellen, hvor ét fagudbud kan kobles til flere hold.
 
 Migration `020_subject_offering_class_groups.sql` opretter fundamentet for den model med join-tabellen `subject_offering_class_groups`. Tabellen kobler flere `class_groups` til samme `subject_offering`, mens `subject_offerings.class_group_id` bevares som legacy/primært hold, så eksisterende views, imports og read-only sider ikke knækker. Eksisterende `subject_offerings` backfilles til join-tabellen med `member_role = primary`, `sort_order = 1` og metadata om at rækken kommer fra `subject_offerings.class_group_id`.
 
-Der er stadig ingen UI-write til fagudbud/undervisningsgrupper. Næste fase bør være en server-side `/admin/fagudbud` eller `/admin/undervisningsgrupper` model, som skriver medlemsændringer kontrolleret, audit-logger dem og derefter opdaterer relevante read views for krav, status og planlægning.
+`/admin/fagudbud` bruger nu samme server-side sikkerhedsmodel til `subject_offerings` og `subject_offering_class_groups`: owner/admin/editor kan oprette fagudbud, vælge fag fra `course_subjects`, vælge ét eller flere hold fra `class_groups`, redigere timer/periodefelter og deaktivere/genaktivere fagudbud via `/api/admin/subject-offerings`. Ikke-loggede brugere og `viewer` er read-only. Route handleren kræver `Authorization: Bearer <access_token>`, finder skolens organisation, genbruger rollechecket og skriver audit-rækker i `data_change_log`.
+
+Migration `021_subject_offering_lifecycle.sql` tilføjer `is_active`, `archived_at`, `archived_by` og `archived_reason` til `subject_offerings`. Deaktivering er soft lifecycle: route handleren sætter `is_active = false` og arkivfelterne, men hard-deleter aldrig fagudbuddet. Genaktivering nulstiller arkivfelterne og sætter `is_active = true`.
+
+Ved opret med flere hold opretter `/admin/fagudbud` ét `subject_offering`, sætter `subject_offerings.class_group_id` til det første valgte hold som legacy/primært hold og opretter én række pr. valgt hold i `subject_offering_class_groups`. Ved redigering opdateres join-tabellen, så den er sandheden for alle tilknyttede hold. Fjernede join-rækker slettes fra join-tabellen, men ændringen audit-logges tydeligt med `table_name = subject_offering_class_groups`, `change_type = delete`, `before_data` og `after_data = null`.
+
+Ændringer i selve fagudbuddet audit-logges med `table_name = subject_offerings`, `record_id = subject_offerings.id`, `before_data` og `after_data`. Ændringer i holdtilknytninger audit-logges separat med `table_name = subject_offering_class_groups`, `record_id = subject_offerings.id` og `metadata.class_group_id`, fordi join-tabellen har sammensat primærnøgle.
 
 Admin workload-rækker vises primært fra `v_teacher_workload_status`. `teachers`, `workload_years` og `teacher_workload_allocations` bruges til at berige rækkerne med write-UUID’er og eksisterende `allocated_hours`. Rækker uden gyldigt `teacher_id` eller `workload_year_id` vises stadig, men Gem er disabled for den række.
 
@@ -194,6 +200,7 @@ Route handleren er nu koblet til UI for owner/admin/editor via `/admin/kompetenc
 - Ingen write-knapper for viewer eller ikke-loggede brugere på `/admin/kompetencer`.
 - Ingen hard delete af fag på `/admin/fag`; deaktivering bruger `is_active=false` og arkivfelter fra migration 018.
 - Ingen hard delete af hold på `/admin/hold`; deaktivering bruger `is_active=false` og arkivfelter fra migration 019.
+- Ingen hard delete af fagudbud på `/admin/fagudbud`; deaktivering bruger `is_active=false` og arkivfelter fra migration 021.
 - Ingen anon insert/update/delete policies.
 - Ingen service role key i client components.
 - Ingen ændringer til `lesson_bookings`.
