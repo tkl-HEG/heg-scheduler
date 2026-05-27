@@ -5,13 +5,14 @@ import { createServerSupabaseAdminClient, getServerSupabaseConfig } from "../../
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type Action = "create" | "update" | "deactivate";
+type Action = "create" | "update" | "deactivate" | "reactivate";
 type RequestBody = {
   action?: unknown;
   id?: unknown;
   school_id?: unknown;
   name?: unknown;
   normalized_key?: unknown;
+  archived_reason?: unknown;
 };
 type SchoolRow = {
   id: string;
@@ -23,12 +24,17 @@ type CourseSubjectRow = {
   name: string;
   normalized_key: string | null;
   metadata: Record<string, unknown>;
+  is_active: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
+  archived_reason: string | null;
   created_at: string;
   updated_at: string;
 };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SUBJECT_SELECT = "id,school_id,name,normalized_key,metadata,created_at,updated_at";
+const SUBJECT_SELECT =
+  "id,school_id,name,normalized_key,metadata,is_active,archived_at,archived_by,archived_reason,created_at,updated_at";
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 
 function json(status: number, body: Record<string, unknown>) {
@@ -46,7 +52,7 @@ function normalizeUuid(value: unknown) {
 
 function parseAction(value: unknown, fallback: Action): Action | null {
   if (value === undefined || value === null || value === "") return fallback;
-  return value === "create" || value === "update" || value === "deactivate" ? value : null;
+  return value === "create" || value === "update" || value === "deactivate" || value === "reactivate" ? value : null;
 }
 
 function parseName(value: unknown) {
@@ -74,6 +80,19 @@ function parseNormalizedKey(value: unknown) {
   }
 
   return { value: trimmed, error: null };
+}
+
+function parseArchivedReason(value: unknown) {
+  if (value === undefined || value === null || value === "") return "Admin deactivation from /admin/fag";
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+
+  if (!trimmed) return "Admin deactivation from /admin/fag";
+  if (trimmed.length > 240) return null;
+  if (CONTROL_CHARACTER_PATTERN.test(trimmed)) return null;
+
+  return trimmed;
 }
 
 function metadataForChange(existing: Record<string, unknown> | null | undefined, action: Action) {
@@ -109,7 +128,8 @@ async function writeAudit(
       route: "/api/admin/course-subjects",
       school_id: input.afterData.school_id,
       subject_name: input.afterData.name,
-      normalized_key: input.afterData.normalized_key
+      normalized_key: input.afterData.normalized_key,
+      is_active: input.afterData.is_active
     }
   });
 }
@@ -335,8 +355,8 @@ export async function PATCH(request: NextRequest) {
   const action = parseAction(rawBody.action, "update");
   const subjectId = normalizeUuid(rawBody.id);
 
-  if (!action || (action !== "update" && action !== "deactivate")) {
-    return json(400, { success: false, error: 'PATCH kræver action "update" eller "deactivate".' });
+  if (!action || (action !== "update" && action !== "deactivate" && action !== "reactivate")) {
+    return json(400, { success: false, error: 'PATCH kræver action "update", "deactivate" eller "reactivate".' });
   }
 
   if (!subjectId) {
@@ -374,11 +394,65 @@ export async function PATCH(request: NextRequest) {
     return json(adminAuth.status, { success: false, error: adminAuth.error });
   }
 
-  if (action === "deactivate") {
-    return json(400, {
-      success: false,
-      error:
-        "course_subjects har ikke is_active, status eller archived_at. Hard delete er ikke tilladt; tilføj en migration før deaktivering."
+  if (action === "deactivate" || action === "reactivate") {
+    const changedBy = getAdminIdentityForAudit(adminAuth.user);
+    const archivedReason = parseArchivedReason(rawBody.archived_reason);
+
+    if (action === "deactivate" && !archivedReason) {
+      return json(400, { success: false, error: "archived_reason skal være tekst på højst 240 tegn." });
+    }
+
+    if (action === "deactivate" && existing.data.is_active === false) {
+      return json(200, { success: true, status: "unchanged", subject: existing.data });
+    }
+
+    if (action === "reactivate" && existing.data.is_active === true) {
+      return json(200, { success: true, status: "unchanged", subject: existing.data });
+    }
+
+    const saved = await client
+      .from("course_subjects")
+      .update(
+        action === "deactivate"
+          ? {
+              is_active: false,
+              archived_at: new Date().toISOString(),
+              archived_by: changedBy,
+              archived_reason: archivedReason,
+              metadata: metadataForChange(existing.data.metadata, "deactivate")
+            }
+          : {
+              is_active: true,
+              archived_at: null,
+              archived_by: null,
+              archived_reason: null,
+              metadata: metadataForChange(existing.data.metadata, "reactivate")
+            }
+      )
+      .eq("id", subjectId)
+      .select(SUBJECT_SELECT)
+      .single<CourseSubjectRow>();
+
+    if (saved.error) {
+      return json(500, { success: false, error: `course_subjects lifecycle update: ${saved.error.message}` });
+    }
+
+    const audit = await writeAudit(client, {
+      recordId: saved.data.id,
+      changeType: "update",
+      beforeData: existing.data,
+      afterData: saved.data,
+      changedBy
+    });
+
+    if (audit.error) {
+      return json(500, { success: false, error: `data_change_log insert: ${audit.error.message}` });
+    }
+
+    return json(200, {
+      success: true,
+      status: action === "deactivate" ? "deactivated" : "reactivated",
+      subject: saved.data
     });
   }
 

@@ -15,8 +15,8 @@ export default async function AdminCourseSubjectsPage() {
 
       <section className="info-box">
         Fag redigeres i <code>course_subjects</code>. Schemaet har navn og normaliseret nøgle, men ingen
-        kategori-, niveau-, program- eller aktiv/archive-felter på selve fagtabellen. Deaktivering er derfor låst,
-        indtil der tilføjes fx <code>is_active</code> eller <code>archived_at</code>.
+        kategori-, niveau- eller programfelter på selve fagtabellen. Når migration 018 er kørt, bruger siden
+        <code>is_active</code> og arkivfelter til soft deaktivering uden hard delete.
       </section>
 
       <div className="metric-grid">

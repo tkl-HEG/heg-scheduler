@@ -42,12 +42,16 @@ type ApiSubject = {
   name: string;
   normalized_key: string | null;
   metadata: Record<string, unknown>;
+  is_active: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
+  archived_reason: string | null;
   created_at: string;
   updated_at: string;
 };
 
 type ApiResult =
-  | { success: true; status: "created" | "updated" | "unchanged"; subject: ApiSubject }
+  | { success: true; status: "created" | "updated" | "unchanged" | "deactivated" | "reactivated"; subject: ApiSubject }
   | { success: false; error: string };
 
 type SubjectDraft = {
@@ -102,6 +106,7 @@ function mapApiSubject(
   existing?: AdminCourseSubjectRow
 ): AdminCourseSubjectRow {
   const school = schools.find((candidate) => candidate.id === subject.school_id);
+  const isActive = subject.is_active !== false;
 
   return {
     id: subject.id,
@@ -110,12 +115,16 @@ function mapApiSubject(
     name: subject.name,
     normalized_key: subject.normalized_key ?? null,
     metadata: subject.metadata || {},
+    is_active: isActive,
+    archived_at: subject.archived_at ?? null,
+    archived_by: subject.archived_by ?? null,
+    archived_reason: subject.archived_reason ?? null,
     created_at: subject.created_at,
     updated_at: subject.updated_at,
     competency_count: existing?.competency_count || 0,
     offering_count: existing?.offering_count || 0,
     requirement_count: existing?.requirement_count || 0,
-    status_label: existing?.status_label || "Ingen statusfelt"
+    status_label: isActive ? "Aktiv" : "Inaktiv"
   };
 }
 
@@ -234,17 +243,23 @@ export function AdminCourseSubjectsClient({ subjects, schools, schema }: Props) 
 
   const canWrite = Boolean(session && status.hasWriteAccess);
   const createReady = Boolean(createDraft.school_id && createDraft.name.trim());
-  const lifecycleMessage =
-    "course_subjects har ikke is_active, status eller archived_at. Tilføj et lifecycle-felt før deaktivering aktiveres.";
+  const createSchoolIssue = schools.length
+    ? null
+    : "Kan ikke oprette fag, fordi der ikke kunne findes en skole fra schools, aktivt skoleår eller eksisterende fag.";
+  const lifecycleMessage = schema.supports_deactivation
+    ? "Deaktivering er soft lifecycle: faget bliver inaktivt, men slettes ikke."
+    : "course_subjects har ikke is_active, archived_at, archived_by og archived_reason endnu. Kør migration 018 før deaktivering aktiveres.";
 
   const schoolOptions = useMemo(
     () =>
       schools.map((school) => ({
         id: school.id,
-        label: school.slug ? `${school.name} (${school.slug})` : school.name
+        label: school.slug ? `${school.name} (${school.slug})` : school.name,
+        source: school.source
       })),
     [schools]
   );
+  const selectedSchool = schoolOptions.find((school) => school.id === createDraft.school_id) || schoolOptions[0] || null;
 
   function updateDraft(subject: AdminCourseSubjectRow, patch: Partial<SubjectDraft>) {
     setDrafts((current) => ({
@@ -368,6 +383,61 @@ export function AdminCourseSubjectsClient({ subjects, schools, schema }: Props) 
     }
   }
 
+  async function updateLifecycle(subject: AdminCourseSubjectRow, action: "deactivate" | "reactivate") {
+    if (!session || !status.hasWriteAccess) {
+      setError("Log ind som owner/admin/editor for at ændre fagstatus.");
+      return;
+    }
+
+    if (!schema.supports_deactivation) {
+      setError("Kør migration 018, før fag kan deaktiveres.");
+      return;
+    }
+
+    setSavingKey(`${action}:${subject.id}`);
+    setNotice(null);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/admin/course-subjects", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          action,
+          id: subject.id,
+          archived_reason: action === "deactivate" ? "Admin deactivation from /admin/fag" : null
+        })
+      });
+
+      const body = (await response.json()) as ApiResult;
+
+      if (!response.ok || !body.success) {
+        const apiError = "error" in body ? body.error : "Ukendt fejl";
+        setError(`${action === "deactivate" ? "Deaktivér" : "Genaktivér"} fejlede (${response.status}): ${apiError}`);
+        return;
+      }
+
+      const updated = mapApiSubject(body.subject, schools, subject);
+      setLocalSubjects((current) => sortSubjects(current.map((candidate) => (candidate.id === subject.id ? updated : candidate))));
+      setNotice(
+        body.status === "unchanged"
+          ? `${updated.name} havde allerede den status.`
+          : action === "deactivate"
+            ? `${updated.name} blev deaktiveret.`
+            : `${updated.name} blev genaktiveret.`
+      );
+      setLastSavedId(subject.id);
+      router.refresh();
+    } catch (mutationError) {
+      setError(mutationError instanceof Error ? mutationError.message : String(mutationError));
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
   return (
     <div className="admin-subject-client">
       <section className="content-section">
@@ -385,7 +455,8 @@ export function AdminCourseSubjectsClient({ subjects, schools, schema }: Props) 
           </p>
         ) : null}
         {!canWrite && !loadingAuth ? <p className="notice">Fag er read-only for viewer og ikke-loggede brugere.</p> : null}
-        {!schema.supports_deactivation ? <p className="notice">{lifecycleMessage}</p> : null}
+        {schema.supports_deactivation ? <p className="status-message">{lifecycleMessage}</p> : <p className="notice">{lifecycleMessage}</p>}
+        {createSchoolIssue ? <p className="notice">{createSchoolIssue}</p> : null}
         {status.warning ? <p className="notice">{status.warning}</p> : null}
         {status.error ? <p className="notice">{status.error}</p> : null}
         {error ? <p className="notice">{error}</p> : null}
@@ -397,26 +468,35 @@ export function AdminCourseSubjectsClient({ subjects, schools, schema }: Props) 
         <form className="admin-subject-form" onSubmit={(event) => void createSubject(event)}>
           <label>
             Skole
-            <select
-              disabled={!canWrite || savingKey === "create" || schoolOptions.length <= 1}
-              onChange={(event) =>
-                setCreateDraft((current) => ({
-                  ...current,
-                  school_id: event.target.value
-                }))
-              }
-              value={createDraft.school_id}
-            >
-              {schoolOptions.length ? (
-                schoolOptions.map((school) => (
+            {schoolOptions.length <= 1 ? (
+              <input
+                disabled
+                readOnly
+                type="text"
+                value={
+                  selectedSchool
+                    ? `${selectedSchool.label}${selectedSchool.source === "schools" ? "" : " - automatisk fundet"}`
+                    : "Ingen skole fundet"
+                }
+              />
+            ) : (
+              <select
+                disabled={!canWrite || savingKey === "create"}
+                onChange={(event) =>
+                  setCreateDraft((current) => ({
+                    ...current,
+                    school_id: event.target.value
+                  }))
+                }
+                value={createDraft.school_id}
+              >
+                {schoolOptions.map((school) => (
                   <option key={school.id} value={school.id}>
                     {school.label}
                   </option>
-                ))
-              ) : (
-                <option value="">Ingen skole fundet</option>
-              )}
-            </select>
+                ))}
+              </select>
+            )}
           </label>
           <label>
             Navn
@@ -450,7 +530,7 @@ export function AdminCourseSubjectsClient({ subjects, schools, schema }: Props) 
               value={createDraft.normalized_key}
             />
           </label>
-          <button disabled={!canWrite || !createReady || savingKey === "create"} type="submit">
+          <button disabled={!canWrite || !createReady || Boolean(createSchoolIssue) || savingKey === "create"} type="submit">
             {savingKey === "create" ? "Opretter..." : "Opret fag"}
           </button>
         </form>
@@ -477,11 +557,14 @@ export function AdminCourseSubjectsClient({ subjects, schools, schema }: Props) 
                 localSubjects.map((subject) => {
                   const draft = drafts[subject.id] || subjectDraft(subject);
                   const isSaving = savingKey === `update:${subject.id}`;
+                  const isLifecycleSaving =
+                    savingKey === `deactivate:${subject.id}` || savingKey === `reactivate:${subject.id}`;
                   const isDirty = hasDraftChanges(subject, draft);
-                  const canEdit = canWrite && !isSaving;
+                  const canEdit = canWrite && !isSaving && !isLifecycleSaving && subject.is_active;
+                  const lifecycleAction = subject.is_active ? "deactivate" : "reactivate";
 
                   return (
-                    <tr key={subject.id}>
+                    <tr className={subject.is_active ? undefined : "inactive-subject-row"} key={subject.id}>
                       <td>
                         <input
                           className="subject-field-input"
@@ -507,23 +590,29 @@ export function AdminCourseSubjectsClient({ subjects, schools, schema }: Props) 
                       <td>{subject.offering_count}</td>
                       <td>{subject.requirement_count}</td>
                       <td>
-                        <span className="badge badge-warning">{subject.status_label}</span>
-                        <small>{schema.supports_deactivation ? "Kan deaktiveres" : "Deaktivering kræver migration"}</small>
+                        <span className={`badge ${subject.is_active ? "badge-info" : "badge-warning"}`}>{subject.status_label}</span>
+                        {subject.archived_at ? <small>{asText(subject.archived_reason, "Arkiveret")}</small> : null}
                       </td>
                       <td>
                         <div className="subject-actions">
                           <button
                             className="button-secondary"
-                            disabled={!canWrite || !isDirty || isSaving}
+                            disabled={!canWrite || !isDirty || isSaving || isLifecycleSaving || !subject.is_active}
                             onClick={() => void saveSubject(subject)}
                             type="button"
                           >
                             {isSaving ? "Gemmer..." : "Gem"}
                           </button>
-                          <button className="button-secondary" disabled title={lifecycleMessage} type="button">
-                            Deaktivér
+                          <button
+                            className="button-secondary"
+                            disabled={!canWrite || !schema.supports_deactivation || isLifecycleSaving || isSaving}
+                            onClick={() => void updateLifecycle(subject, lifecycleAction)}
+                            title={lifecycleMessage}
+                            type="button"
+                          >
+                            {isLifecycleSaving ? "Gemmer..." : subject.is_active ? "Deaktivér" : "Genaktivér"}
                           </button>
-                          {lastSavedId === subject.id && !isSaving ? <small>Sidst gemt</small> : null}
+                          {lastSavedId === subject.id && !isSaving && !isLifecycleSaving ? <small>Sidst gemt</small> : null}
                         </div>
                       </td>
                     </tr>

@@ -595,6 +595,11 @@ small {
   gap: 8px;
   align-items: center;
 }
+
+.inactive-subject-row td {
+  background: #fbfcfa;
+  color: var(--muted);
+}
 .review-heading {
   display: flex;
   align-items: flex-start;

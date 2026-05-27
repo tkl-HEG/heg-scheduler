@@ -16,6 +16,7 @@ Indhold:
 - `supabase/migrations/011_fix_workload_period_dates.sql` - retter halvårsperioderne for `2026/2027`, så efteråret går ca. to uger ind i januar.
 - `supabase/migrations/012_readonly_workload_policies.sql` - giver read-only anon-adgang til opgaveoversigt-tabeller og workload-statusviewet.
 - `supabase/migrations/013_seed_teacher_workload_allocations.sql` - seeder midlertidige årsnormer for `2026/2027`: 750 timer som standard, JHM 100, CNH 350 og LSSS 0.
+- `supabase/migrations/018_course_subject_lifecycle.sql` - tilføjer soft lifecycle til fag med `is_active` og arkivfelter til `/admin/fag`.
 - `scripts/import-official-hf-calendar.mjs` - parser `Kalender 2023-2028 nyt forslag.xlsx` med dry-run og Supabase-import.
 - `scripts/import-planning-calendars.mjs` - parser GF1/GF2/STÅ Excel-udkast og DOCX med vigtige datoer med dry-run og senere Supabase-import.
 - `scripts/import-stamdata.mjs` - parser prototype- og Excel-stamdata med dry-run og senere Supabase-import.
@@ -110,7 +111,7 @@ Appen har siderne `/`, `/importstatus`, `/hold`, `/laerere`, `/fagudbud`, `/kale
 
 `/admin/opgaveoversigt` bruger samme sikkerhedsmodel til lærer-årstimer: `owner`, `admin` og `editor` kan redigere `allocated_hours`, mens ikke-loggede brugere og `viewer` er read-only. Ændringer sker server-side og audit-logges med before/after i `data_change_log`.
 
-`/admin/fag` bruger samme server-side sikkerhedsmodel til `course_subjects`: `owner`, `admin` og `editor` kan oprette fag og redigere `name`/`normalized_key`, mens ikke-loggede brugere og `viewer` er read-only. Ændringer skrives via `/api/admin/course-subjects` og audit-logges i `data_change_log`. Det nuværende schema har ikke `is_active`, `status` eller `archived_at`, så der laves ingen hard delete; deaktivering er read-only fallback, indtil en migration tilføjer et lifecycle-felt.
+`/admin/fag` bruger samme server-side sikkerhedsmodel til `course_subjects`: `owner`, `admin` og `editor` kan oprette fag, redigere `name`/`normalized_key` og deaktivere/genaktivere fag, mens ikke-loggede brugere og `viewer` er read-only. Ændringer skrives via `/api/admin/course-subjects` og audit-logges i `data_change_log`. Migration `018_course_subject_lifecycle.sql` skal køres i Supabase for at tilføje `is_active`, `archived_at`, `archived_by` og `archived_reason`; deaktivering er soft lifecycle og aldrig hard delete.
 
 Se `docs/server-side-edits.md` for den planlagte server-only write-model og Vercel environment variables.
 
